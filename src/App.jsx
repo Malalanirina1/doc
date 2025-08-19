@@ -10,7 +10,10 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/admin/*" element={<DashboardAdmin />} />
+        <Route path="/admin" element={<DashboardAdmin />} />
+        <Route path="/admin/statistics" element={<DashboardAdmin page="statistics" />} />
+        <Route path="/admin/documents" element={<DashboardAdmin page="documents" />} />
+        <Route path="/admin/history" element={<DashboardAdmin page="history" />} />
         <Route path="/assistant" element={<DashboardAssistant />} />
       </Routes>
     </Router>

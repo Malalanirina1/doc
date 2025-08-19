@@ -35,7 +35,7 @@ export default function AdminDocuments() {
         <div className="text-center py-8 text-blue-500 font-semibold">Chargement...</div>
       ) : error ? (
         <div className="text-center py-8 text-red-500 font-semibold">{error}</div>
-      ) : (
+      ) : Array.isArray(documents) ? (
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b">
@@ -63,6 +63,8 @@ export default function AdminDocuments() {
             ))}
           </tbody>
         </table>
+      ) : (
+        <div className="text-center py-8 text-red-500 font-semibold">Format de données inattendu</div>
       )}
     </div>
   );

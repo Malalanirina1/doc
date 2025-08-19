@@ -1,12 +1,17 @@
 
-import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import AdminStatistics from "../components/AdminStatistics.jsx";
 import AdminDocuments from "../components/AdminDocuments.jsx";
 import AdminHistory from "../components/AdminHistory.jsx";
 
-function DashboardAdmin() {
+function DashboardAdmin({ page }) {
   const location = useLocation();
   const current = location.pathname;
+
+  let content;
+  if (page === "statistics") content = <AdminStatistics />;
+  else if (page === "history") content = <AdminHistory />;
+  else content = <AdminDocuments />;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -20,33 +25,28 @@ function DashboardAdmin() {
       {/* Menu principal en haut */}
       <div className="p-4 bg-white shadow-sm flex gap-4 border-b">
         <Link
-          to="statistics"
+          to="/admin/statistics"
           className={`px-4 py-2 rounded transition font-medium ${current.endsWith("statistics") ? "bg-green-100 text-green-800" : "hover:bg-gray-100"}`}
         >
           Statistiques
         </Link>
         <Link
-          to="documents"
+          to="/admin/documents"
           className={`px-4 py-2 rounded transition font-medium ${current.endsWith("documents") || current.endsWith("admin") ? "bg-green-100 text-green-800" : "hover:bg-gray-100"}`}
         >
           Documents
         </Link>
         <Link
-          to="history"
+          to="/admin/history"
           className={`px-4 py-2 rounded transition font-medium ${current.endsWith("history") ? "bg-green-100 text-green-800" : "hover:bg-gray-100"}`}
         >
           Historique
         </Link>
       </div>
 
-      {/* Contenu dynamique via route imbriquée */}
+      {/* Contenu dynamique selon la route */}
       <div className="p-6 w-full max-w-3xl mx-auto">
-        <Routes>
-          <Route path="statistics" element={<AdminStatistics />} />
-          <Route path="documents" element={<AdminDocuments />} />
-          <Route path="history" element={<AdminHistory />} />
-          <Route index element={<AdminDocuments />} />
-        </Routes>
+        {content}
       </div>
     </div>
   );
