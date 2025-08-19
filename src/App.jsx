@@ -1,8 +1,8 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Login from "./Login";
-import Register from "./Register";
-import DashboardAdmin from "./DashboardAdmin";
-import DashboardAssistant from "./DashboardAssistant";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import DashboardAdmin from "./pages/DashboardAdmin";
+import DashboardAssistant from "./pages/DashboardAssistant";
 
 function App() {
   return (
