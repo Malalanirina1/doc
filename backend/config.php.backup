@@ -1,0 +1,232 @@
+<?php
+/**
+ * Configuration principale du système de gestion documentaire
+ * Version finale - Août 2025 - Simplifié pour frontend uniquement
+ */
+
+// Configuration base de données
+define('DB_HOST', '127.0.0.1');
+define('DB_PORT', '3306');
+define('DB_NAME', 'gestion_doc');
+define('DB_USER', 'noums');
+define('DB_PASS', 'proplayer');
+define('DB_CHARSET', 'utf8mb4');
+
+/**
+ * Configuration des headers CORS
+ */
+function setCORSHeaders() {
+    // Permettre les requêtes depuis localhost:5173 (Vite dev server)
+    $allowedOrigins = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000'
+    ];
+    
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (in_array($origin, $allowedOrigins)) {
+        header("Access-Control-Allow-Origin: $origin");
+    }
+    
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+    header('Access-Control-Allow-Credentials: true');
+    header('Content-Type: application/json; charset=utf-8');
+    
+    // Gérer les requêtes preflight OPTIONS
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        http_response_code(200);
+        exit;
+    }
+}
+
+/**
+ * Connexion à la base de données
+ */
+try {
+    $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
+    ]);
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Erreur de connexion à la base de données: ' . $e->getMessage()]);
+    exit;
+}
+
+// Initialiser les headers CORS
+setCORSHeaders();
+?>
+
+// Configuration des priorités automatiques (en jours)
+define('JOURS_URGENT', 0);        // Même jour = urgent
+define('JOURS_BIENTOT', 2);       // Dans 2 jours = bientôt
+
+// Configuration des statuts et priorités
+$STATUTS_CONFIG = [
+    'en_cours' => ['label' => 'En cours', 'color' => 'primary'],
+    'fini' => ['label' => 'Terminé', 'color' => 'success'],
+    'rejete' => ['label' => 'Rejeté', 'color' => 'danger'],
+    'retard' => ['label' => 'En retard', 'color' => 'danger']
+];
+
+$PRIORITES_CONFIG = [
+    'retard' => [
+        'label' => 'En retard',
+        'color' => 'danger',
+        'badge' => 'bg-red-100 text-red-800',
+        'order' => 1
+    ],
+    'urgent' => [
+        'label' => 'Urgent - Échéance aujourd\'hui',
+        'color' => 'warning',
+        'badge' => 'bg-orange-100 text-orange-800', 
+        'order' => 2
+    ],
+    'bientot' => [
+        'label' => 'Bientôt en échéance',
+        'color' => 'info',
+        'badge' => 'bg-yellow-100 text-yellow-800',
+        'order' => 3
+    ],
+    'normal' => [
+        'label' => 'En cours normal',
+        'color' => 'primary',
+        'badge' => 'bg-blue-100 text-blue-800',
+        'order' => 4
+    ],
+    'termine' => [
+        'label' => 'Terminé',
+        'color' => 'success',
+        'badge' => 'bg-green-100 text-green-800',
+        'order' => 5
+    ],
+    'rejete' => [
+        'label' => 'Rejeté',
+        'color' => 'danger',
+        'badge' => 'bg-red-100 text-red-800',
+        'order' => 6
+    ]
+];
+
+// Connexion à la base de données
+try {
+    $pdo = new PDO(
+        "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET,
+        DB_USER,
+        DB_PASS,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
+    );
+} catch (PDOException $e) {
+    http_response_code(500);
+    die(json_encode(['error' => 'Erreur de connexion à la base de données: ' . $e->getMessage()]));
+}
+
+/**
+ * Configuration CORS centralisée
+ */
+function setCORSHeaders() {
+    // Autoriser l'origine spécifique du frontend React
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:3000', 
+        'http://127.0.0.1:5173'
+    ];
+    
+    if (in_array($origin, $allowedOrigins)) {
+        header("Access-Control-Allow-Origin: $origin");
+    } else {
+        // Fallback pour les autres origines
+        header("Access-Control-Allow-Origin: *");
+    }
+    
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+    header('Access-Control-Allow-Credentials: true');
+    header('Content-Type: application/json; charset=utf-8');
+    
+    // Répondre aux requêtes OPTIONS (preflight)
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        http_response_code(200);
+        exit();
+    }
+}
+
+/**
+ * Calcule la priorité d'un dossier basée sur les dates
+ */
+function calculerPriorite($statut, $date_fin_prevue) {
+    // Si terminé ou rejeté, retourne le statut correspondant
+    if ($statut === 'fini') return 'termine';
+    if ($statut === 'rejete') return 'rejete';
+    
+    // Pour tous les autres statuts (en_cours, retard), calcul basé sur les dates
+    $aujourd_hui = new DateTime();
+    $date_limite = new DateTime($date_fin_prevue);
+    $diff = $aujourd_hui->diff($date_limite);
+    $jours_restants = $diff->invert ? -$diff->days : $diff->days;
+    
+    // Logique de priorité basée sur les dates
+    if ($jours_restants < 0) {
+        return 'retard';  // Dépassé
+    } elseif ($jours_restants === 0) {
+        return 'urgent';  // Aujourd'hui
+    } elseif ($jours_restants <= JOURS_BIENTOT) {
+        return 'bientot'; // Dans 2 jours
+    } else {
+        return 'normal';  // Plus tard
+    }
+}
+
+/**
+ * Calcule les jours restants
+ */
+function calculerJoursRestants($date_fin_prevue) {
+    $aujourd_hui = new DateTime();
+    $date_limite = new DateTime($date_fin_prevue);
+    $diff = $aujourd_hui->diff($date_limite);
+    return $diff->invert ? -$diff->days : $diff->days;
+}
+
+/**
+ * Enrichit un dossier avec les informations de priorité
+ */
+function enrichirDossier($dossier) {
+    global $PRIORITES_CONFIG;
+    
+    // Logique pour le statut affiché : tous en_cours sauf fini et rejete
+    $statut_affiche = $dossier['statut'];
+    if ($dossier['statut'] === 'retard') {
+        $statut_affiche = 'en_cours'; // Les retards sont affichés comme en_cours
+    }
+    $dossier['statut_affiche'] = $statut_affiche;
+    
+    // Calcul de la priorité pour TOUS les dossiers (même finis/rejetés)
+    $priorite = calculerPriorite($dossier['statut'], $dossier['date_fin_prevue']);
+    $dossier['priorite'] = $priorite;
+    $dossier['jours_restants'] = calculerJoursRestants($dossier['date_fin_prevue']);
+    
+    if (isset($PRIORITES_CONFIG[$priorite])) {
+        $config = $PRIORITES_CONFIG[$priorite];
+        $dossier['priorite_label'] = $config['label'];
+        $dossier['priorite_color'] = $config['color'];
+        $dossier['priorite_badge'] = $config['badge'];
+        $dossier['priorite_order'] = $config['order'];
+    }
+    
+    return $dossier;
+}
+
+// Initialiser les headers CORS
+setCORSHeaders();
+?>
