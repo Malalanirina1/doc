@@ -1,28 +1,35 @@
 import React, { useState } from "react";
 import { useToast } from "../components/Toast.jsx";
-import axios from "axios";
+import { apiRequest, API_ENDPOINTS } from "../config/api.js";
 import { Link } from "react-router-dom";
 
 function Register() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [nomComplet, setNomComplet] = useState("");
   const [role, setRole] = useState("assistant");
   const { showToast } = useToast();
 
   const handleRegister = async () => {
     try {
-      const res = await axios.post("http://localhost/gestion_doc_api/register.php", {
-        username,
-        password,
-        role,
+      const data = await apiRequest(API_ENDPOINTS.register, {
+        method: 'POST',
+        body: JSON.stringify({
+          username,
+          password,
+          nom_complet: nomComplet,
+          role,
+        })
       });
-      if (res.data.success) {
+      
+      if (data.success) {
         showToast("Compte créé avec succès !", "success");
         setUsername("");
         setPassword("");
+        setNomComplet("");
         setRole("assistant");
       } else {
-        showToast(res.data.message, "error");
+        showToast(data.message, "error");
       }
     } catch (err) {
       showToast("Erreur serveur", "error");
@@ -41,6 +48,13 @@ function Register() {
           placeholder="Nom utilisateur"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+        />
+        <input
+          className="w-full px-4 py-3 mb-3 rounded-md border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-base"
+          type="text"
+          placeholder="Nom complet"
+          value={nomComplet}
+          onChange={(e) => setNomComplet(e.target.value)}
         />
         <input
           className="w-full px-4 py-3 mb-3 rounded-md border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-base"

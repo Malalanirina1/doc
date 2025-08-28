@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test CORS</title>
+</head>
+<body>
+    <h1>Test CORS Login</h1>
+    <button onclick="testLogin()">Test Login</button>
+    <div id="result"></div>
+
+    <script>
+        async function testLogin() {
+            try {
+                const response = await fetch('http://localhost/doc/login.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        username: 'admin',
+                        password: 'password123'
+                    })
+                });
+
+                const data = await response.json();
+                document.getElementById('result').innerHTML = 
+                    '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                console.log('Success:', data);
+            } catch (error) {
+                document.getElementById('result').innerHTML = 
+                    '<pre style="color: red;">Error: ' + error.message + '</pre>';
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

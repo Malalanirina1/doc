@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  # Serveur PHP avec Apache (remplace WAMP)
+  php-apache:
+    build:
+      context: .
+      dockerfile: Dockerfile.php
+    container_name: gestion_doc_php
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      - DB_HOST=127.0.0.1
+      - DB_NAME=gestion_doc
+      - DB_USER=noums
+      - DB_PASSWORD=proplayer

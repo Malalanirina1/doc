@@ -1,64 +1,150 @@
 import React, { useState } from "react";
 import { useToast } from "../components/Toast.jsx";
-import axios from "axios";
+import { apiRequest, API_ENDPOINTS } from "../config/api.js";
 import { Link, useNavigate } from "react-router-dom";
 
-function Login() {
+function Login({ setUser }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const handleLogin = async () => {
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
     try {
-      const res = await axios.post("http://localhost/gestion_doc_api/login.php", {
-        username,
-        password,
+      const data = await apiRequest(API_ENDPOINTS.login, {
+        method: 'POST',
+        body: JSON.stringify({
+          username,
+          password,
+        })
       });
-      if (res.data.success) {
-        showToast("Connexion réussie, rôle: " + res.data.role, "success");
-        // Redirection immédiate avec react-router
-        if (res.data.role === "admin") {
+      
+      console.log('🔵 LOGIN RESPONSE:', data);
+      
+      if (data.success) {
+        // Les données utilisateur sont dans data.user
+        const userData = data.user;
+        console.log('👤 User data:', userData);
+        
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('token', data.token);
+        
+        showToast(`Connexion réussie - ${userData.role}`, "success");
+        
+        // Redirection selon le rôle
+        if (userData.role === "admin") {
           navigate("/admin", { replace: true });
-        } else if (res.data.role === "assistant") {
+        } else if (userData.role === "assistant") {
           navigate("/assistant", { replace: true });
         }
       } else {
-        showToast(res.data.message, "error");
+        console.log('❌ LOGIN FAILED:', data);
+        showToast(data.message || "Identifiants incorrects", "error");
       }
     } catch (err) {
-      showToast("Erreur serveur", "error");
-      console.error(err);
+      console.error('🔴 LOGIN ERROR COMPLETE:', {
+        error: err,
+        message: err.message,
+        stack: err.stack,
+        endpoint: API_ENDPOINTS.login,
+        requestData: { username, password: '***' }
+      });
+      showToast("Erreur de connexion: " + err.message, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-blue-50 font-sans">
-      <div className="bg-white p-10 rounded-xl shadow-lg w-full max-w-sm">
-        <h2 className="text-2xl font-bold mb-6 text-blue-700">Connexion</h2>
-        <input
-          className="w-full px-4 py-3 mb-3 rounded-md border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-base"
-          type="text"
-          placeholder="Nom utilisateur"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-        <input
-          className="w-full px-4 py-3 mb-3 rounded-md border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 text-base"
-          type="password"
-          placeholder="Mot de passe"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button
-          className="w-full py-3 mb-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold text-lg transition duration-150"
-          onClick={handleLogin}
-        >
-          Se connecter
-        </button>
-        <div className="flex justify-between text-sm">
-          <a href="#" className="text-blue-500 hover:underline">Mot de passe oublié ?</a>
-          <Link to="/register" className="text-blue-500 hover:underline">Créer un compte</Link>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="text-center">
+            <div className="mx-auto h-16 w-16 bg-indigo-100 rounded-full flex items-center justify-center">
+              <svg className="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h2 className="mt-4 text-3xl font-bold text-gray-900">
+              Gestion Dossiers
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Système de gestion documentaire sécurisé
+            </p>
+          </div>
+
+          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nom d'utilisateur
+                </label>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  placeholder="Entrez votre nom d'utilisateur"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Mot de passe
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  placeholder="Entrez votre mot de passe"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+              >
+                {loading ? (
+                  <div className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Connexion...
+                  </div>
+                ) : (
+                  'Se connecter'
+                )}
+              </button>
+            </div>
+
+            <div className="text-center">
+              <div className="text-xs text-gray-500 space-y-1">
+                <p><strong>Comptes de test :</strong></p>
+                <p>Admin: admin / admin123</p>
+                <p>Assistant: assistant1 / assistant123</p>
+              </div>
+              <div className="mt-4">
+                <Link to="/register" className="text-indigo-600 hover:text-indigo-500 text-sm font-medium">
+                  Créer un nouveau compte
+                </Link>
+              </div>
+            </div>
+          </form>
         </div>
       </div>
     </div>
