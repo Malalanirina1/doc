@@ -50,19 +50,19 @@ function getClients() {
     
     if ($search) {
         $query = "
-            SELECT id, nom, prenom, telephone, email, adresse, created_at,
+            SELECT id, nom, prenom, telephone, email, adresse, ville_origine, created_at,
                    CONCAT(prenom, ' ', nom) as nom_complet
             FROM clients 
-            WHERE nom LIKE ? OR prenom LIKE ? OR telephone LIKE ? OR email LIKE ?
+            WHERE nom LIKE ? OR prenom LIKE ? OR telephone LIKE ? OR email LIKE ? OR ville_origine LIKE ?
             ORDER BY nom, prenom
             LIMIT ?
         ";
         $searchTerm = "%$search%";
         $stmt = $pdo->prepare($query);
-        $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, $limit]);
+        $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $limit]);
     } else {
         $query = "
-            SELECT id, nom, prenom, telephone, email, adresse, created_at,
+            SELECT id, nom, prenom, telephone, email, adresse, ville_origine, created_at,
                    CONCAT(prenom, ' ', nom) as nom_complet
             FROM clients 
             ORDER BY nom, prenom
@@ -100,8 +100,8 @@ function createClient() {
     }
     
     $query = "
-        INSERT INTO clients (nom, prenom, telephone, email, adresse) 
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO clients (nom, prenom, telephone, email, adresse, ville_origine) 
+        VALUES (?, ?, ?, ?, ?, ?)
     ";
     
     $stmt = $pdo->prepare($query);
@@ -110,7 +110,8 @@ function createClient() {
         $input['prenom'],
         $input['telephone'] ?? null,
         $input['email'] ?? null,
-        $input['adresse'] ?? null
+        $input['adresse'] ?? null,
+        $input['ville_origine'] ?? null
     ]);
     
     $clientId = $pdo->lastInsertId();

@@ -214,13 +214,17 @@ function updateType() {
             $insertStmt = $pdo->prepare($insertQuery);
             
             foreach ($input['pieces_requises'] as $index => $piece) {
-                $insertStmt->execute([
-                    $input['id'],
-                    $piece['nom_piece'],
-                    $piece['obligatoire'] ?? 1,
-                    $piece['description'] ?? null,
-                    $index + 1
-                ]);
+                // Vérifier que la pièce a bien un nom
+                $nomPiece = $piece['nom_piece'] ?? $piece['nom'] ?? null;
+                if ($nomPiece) {
+                    $insertStmt->execute([
+                        $input['id'],
+                        $nomPiece,
+                        $piece['obligatoire'] ?? 1,
+                        $piece['description'] ?? null,
+                        $index + 1
+                    ]);
+                }
             }
         }
         

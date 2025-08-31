@@ -60,6 +60,7 @@ function getDossiers() {
             d.date_fin_prevue,
             d.statut,
             d.motif_rejet,
+            d.description,
             d.montant,
             d.created_at,
             d.updated_at,
@@ -70,6 +71,7 @@ function getDossiers() {
             c.email as client_email,
             c.telephone as client_telephone,
             c.adresse as client_adresse,
+            c.ville_origine as client_ville_origine,
             -- Informations type de dossier
             td.nom as type_nom,
             td.description as type_description,
@@ -176,8 +178,8 @@ function createDossier() {
     $query = "
         INSERT INTO dossiers (
             numero_ticket, client_id, type_dossier_id, date_fin_prevue, 
-            montant, created_by, statut
-        ) VALUES (?, ?, ?, ?, ?, ?, 'en_cours')
+            montant, description, created_by, statut
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'en_cours')
     ";
     
     $stmt = $pdo->prepare($query);
@@ -187,6 +189,7 @@ function createDossier() {
         $input['type_dossier_id'],
         $input['date_fin_prevue'],
         $input['montant'],
+        $input['description'] ?? '',
         $input['created_by'] ?? 1
     ]);
     

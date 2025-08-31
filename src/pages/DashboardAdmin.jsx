@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocation } from "react-router-dom";
+import RapportsAvances from '../components/RapportsAvances';
 
 // Utilitaire pour logguer les réponses API
 const logApiResponse = (method, endpoint, data, success, error = null) => {
@@ -34,6 +35,15 @@ function DashboardAdmin({ user, setUser }) {
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionReason, setActionReason] = useState('');
   
+  // États simples pour les confirmations
+  const [deletingType, setDeletingType] = useState(null);
+  const [togglingType, setTogglingType] = useState(null);
+  
+  // États pour la recherche de clients
+  const [clientSearchResults, setClientSearchResults] = useState([]);
+  const [isSearchingClients, setIsSearchingClients] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  
   // États pour les formulaires
   const [newDossier, setNewDossier] = useState({
     client_id: '',
@@ -41,6 +51,7 @@ function DashboardAdmin({ user, setUser }) {
     client_prenom: '',
     client_telephone: '',
     client_email: '',
+    client_ville_origine: '',
     type_dossier_id: '',
     description: '',
     date_fin_prevue: '',
@@ -71,6 +82,7 @@ function DashboardAdmin({ user, setUser }) {
   // États pour l'édition de types
   const [editingType, setEditingType] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [showToggleConfirm, setShowToggleConfirm] = useState(null);
   
   // États pour le "panier" de pièces
   const [panierPieces, setPanierPieces] = useState([]);
@@ -290,10 +302,18 @@ function DashboardAdmin({ user, setUser }) {
         // Enrichir les dossiers avec les calculs frontend
         const dossiersEnrichis = (data.data || []).map(enrichirDossierFrontend);
         
-        // Trier par priorité (retard en premier)
+        // Trier par date de création (plus récents en premier) - l'API le fait déjà mais on s'assure
         dossiersEnrichis.sort((a, b) => {
+          // D'abord par priorité (retard urgent)
           const priorityOrder = { retard: 1, urgent: 2, bientot: 3, normal: 4 };
-          return (priorityOrder[a.priorite] || 999) - (priorityOrder[b.priorite] || 999);
+          const priorityDiff = (priorityOrder[a.priorite] || 999) - (priorityOrder[b.priorite] || 999);
+          
+          // Si même priorité, trier par date de création (plus récent en premier)
+          if (priorityDiff === 0) {
+            return new Date(b.created_at) - new Date(a.created_at);
+          }
+          
+          return priorityDiff;
         });
         
         setDossiers(dossiersEnrichis);
@@ -446,7 +466,7 @@ function DashboardAdmin({ user, setUser }) {
           },
           body: JSON.stringify({
             id: typeId,
-            actif: !type.actif
+            actif: type.actif ? 0 : 1  // Conversion explicite en entier
           })
         });
       }
@@ -464,12 +484,45 @@ function DashboardAdmin({ user, setUser }) {
     }
   };
 
+  // Fonction pour confirmer une action sur un type
+  const confirmTypeAction = (type, action) => {
+    console.log('🔍 MODAL DEBUG AVANT:', {
+      editingType: !!editingType,
+      showCreateTypeModal,
+      showDeleteConfirm: !!showDeleteConfirm,
+      showToggleConfirm: !!showToggleConfirm,
+      showPiecesCommunes,
+      showAddPieceForm
+    });
+    
+    // Fermer tous les autres modals d'abord
+    setEditingType(null);
+    setShowCreateTypeModal(false);
+    setShowDeleteConfirm(null);
+    setShowToggleConfirm(null);
+    setShowPiecesCommunes(false);
+    setShowAddPieceForm(false);
+    
+    // Attendre un petit délai puis ouvrir le bon modal
+    setTimeout(() => {
+      if (action === 'delete') {
+        setShowDeleteConfirm(type);
+        console.log('🔍 OUVERTURE MODAL SUPPRESSION');
+      } else if (action === 'toggle') {
+        setShowToggleConfirm(type);
+        console.log('🔍 OUVERTURE MODAL TOGGLE');
+      }
+    }, 100);
+  };
+
   // Fonctions pour gérer le panier de pièces
   const ajouterPieceAuPanier = (piece) => {
-    if (!panierPieces.find(p => p.nom_piece === piece.nom_piece)) {
+    const nomPiece = piece.nom || piece.nom_piece; // Support des deux formats
+    if (!panierPieces.find(p => p.nom_piece === nomPiece)) {
       setPanierPieces(prev => [...prev, {
-        ...piece,
-        obligatoire: piece.obligatoire_par_defaut || false,
+        nom_piece: nomPiece,
+        description: piece.description || '',
+        obligatoire: piece.obligatoire || false,
         source: 'commune'
       }]);
     }
@@ -502,39 +555,6 @@ function DashboardAdmin({ user, setUser }) {
     setPanierPieces([]);
   };
 
-  const searchClients = async (query) => {
-    if (query.length < 2) {
-      setClients([]);
-      return;
-    }
-    
-    try {
-      const response = await fetch(`http://localhost/doc/search_clients.php?q=${encodeURIComponent(query)}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        logApiResponse('GET', `search_clients.php?search=${query}`, data, data.success);
-        
-        if (data.success) {
-          setClients(data.clients || []);
-        } else {
-          logApiResponse('GET', `search_clients.php?search=${query}`, data, false, data.message);
-        }
-      } else {
-        logApiResponse('GET', `search_clients.php?search=${query}`, null, false, `HTTP ${response.status}`);
-      }
-    } catch (error) {
-      logApiResponse('GET', `search_clients.php?search=${query}`, null, false, error.message);
-      console.error('Erreur lors de la recherche de clients:', error);
-    }
-  };
-
   const selectClient = (client) => {
     setNewDossier(prev => ({
       ...prev,
@@ -542,11 +562,58 @@ function DashboardAdmin({ user, setUser }) {
       client_nom: client.nom_complet.split(' ')[0] || '',
       client_prenom: client.nom_complet.split(' ').slice(1).join(' ') || '',
       client_telephone: client.telephone || '',
-      client_email: client.email || ''
+      client_email: client.email || '',
+      client_ville_origine: client.ville_origine || ''
     }));
     setShowClientSearch(false);
-    setClients([]);
-    setSearchQuery('');
+    setClientSearchResults([]);
+    setClientSearchQuery('');
+  };
+
+  // Fonction de recherche en temps réel des clients
+  const searchClientsRealTime = async (query) => {
+    if (!query || query.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+
+    setIsSearchingClients(true);
+    try {
+      const response = await fetch(`http://localhost/doc/api_clients.php?search=${encodeURIComponent(query)}&limit=10`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setClientSearchResults(data.data || []);
+      }
+    } catch (error) {
+      console.error('Erreur recherche clients:', error);
+    } finally {
+      setIsSearchingClients(false);
+    }
+  };
+
+  // Gestion du changement dans le champ de recherche
+  const handleClientSearchChange = (value) => {
+    setClientSearchQuery(value);
+    
+    // Si l'utilisateur tape un nouveau nom, effacer les données client existantes
+    if (value !== newDossier.client_nom) {
+      setNewDossier(prev => ({
+        ...prev,
+        client_id: '',
+        client_nom: value,
+        client_prenom: '',
+        client_telephone: '',
+        client_email: '',
+        client_ville_origine: ''
+      }));
+    }
+    
+    // Recherche après un délai
+    clearTimeout(window.clientSearchTimeout);
+    window.clientSearchTimeout = setTimeout(() => {
+      searchClientsRealTime(value);
+    }, 300);
   };
 
   const createNewDossier = async (e) => {
@@ -567,7 +634,7 @@ function DashboardAdmin({ user, setUser }) {
       let clientId = newDossier.client_id;
       
       if (!clientId) {
-        const clientResponse = await fetch('http://localhost/doc/clients_simple.php', {
+        const clientResponse = await fetch('http://localhost/doc/api_clients.php', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -578,13 +645,14 @@ function DashboardAdmin({ user, setUser }) {
             prenom: newDossier.client_prenom.trim(),
             telephone: newDossier.client_telephone.trim(),
             email: newDossier.client_email.trim(),
-            adresse: ''
+            adresse: '',
+            ville_origine: newDossier.client_ville_origine.trim()
           })
         });
         
         const clientData = await clientResponse.json();
         if (clientData.success) {
-          clientId = clientData.client_id;
+          clientId = clientData.data.id;
         } else {
           showToast('Erreur lors de la création du client', 'error');
           return;
@@ -599,7 +667,7 @@ function DashboardAdmin({ user, setUser }) {
         montant: parseFloat(newDossier.montant) || 0
       };
 
-      const response = await fetch('http://localhost/doc/dossiers.php', {
+      const response = await fetch('http://localhost/doc/api_dossiers.php', {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -622,6 +690,7 @@ function DashboardAdmin({ user, setUser }) {
           client_prenom: '',
           client_telephone: '',
           client_email: '',
+          client_ville_origine: '',
           type_dossier_id: '',
           description: '',
           date_fin_prevue: '',
@@ -680,6 +749,109 @@ function DashboardAdmin({ user, setUser }) {
         loadTypesDocuments();
       } else {
         showToast(data.message || 'Erreur lors de la création', 'error');
+      }
+    } catch (error) {
+      showToast('Erreur de connexion', 'error');
+      console.error('Erreur:', error);
+    }
+  };
+
+  const updateExistingType = async () => {
+    if (!editingType.nom.trim() || !editingType.tarif) {
+      showToast('Veuillez remplir tous les champs obligatoires', 'error');
+      return;
+    }
+
+    try {
+      const typeData = {
+        id: editingType.id,
+        nom: editingType.nom.trim(),
+        description: editingType.description ? editingType.description.trim() : '',
+        tarif: parseFloat(editingType.tarif),
+        delai_jours: parseInt(editingType.delai_jours),
+        pieces_requises: editingType.pieces_requises?.map((piece, index) => ({
+          nom_piece: piece.nom_piece,
+          obligatoire: piece.obligatoire,
+          description: piece.description || '',
+          ordre_affichage: index + 1
+        })) || []
+      };
+
+      const response = await fetch('http://localhost/doc/api_types.php', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(typeData)
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        showToast('Type de dossier modifié avec succès', 'success');
+        setEditingType(null);
+        loadTypesDocuments();
+      } else {
+        showToast(data.message || 'Erreur lors de la modification', 'error');
+      }
+    } catch (error) {
+      showToast('Erreur de connexion', 'error');
+      console.error('Erreur:', error);
+    }
+  };
+
+  // Fonctions simples pour suppression et toggle
+  const handleDeleteType = async (typeId) => {
+    try {
+      const response = await fetch(`http://localhost/doc/api_types.php?id=${typeId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Type supprimé avec succès', 'success');
+        setDeletingType(null);
+        loadTypesDocuments();
+      } else {
+        showToast(data.message || 'Erreur lors de la suppression', 'error');
+      }
+    } catch (error) {
+      showToast('Erreur de connexion', 'error');
+      console.error('Erreur:', error);
+    }
+  };
+
+  const handleToggleType = async (typeId) => {
+    try {
+      const typeToToggle = togglingType;
+      const newActifStatus = typeToToggle.actif ? 0 : 1;
+      
+      const response = await fetch('http://localhost/doc/api_types.php', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: typeId,
+          actif: newActifStatus
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast(
+          `Type ${newActifStatus ? 'activé' : 'désactivé'} avec succès`, 
+          'success'
+        );
+        setTogglingType(null);
+        loadTypesDocuments();
+      } else {
+        showToast(data.message || 'Erreur lors de la modification', 'error');
       }
     } catch (error) {
       showToast('Erreur de connexion', 'error');
@@ -903,6 +1075,7 @@ function DashboardAdmin({ user, setUser }) {
       const matchesSearch = 
         d.client_nom?.toLowerCase().includes(query) ||
         d.client_prenom?.toLowerCase().includes(query) ||
+        d.client_ville_origine?.toLowerCase().includes(query) ||
         d.type_nom?.toLowerCase().includes(query) ||
         d.numero_ticket?.toLowerCase().includes(query);
       
@@ -981,7 +1154,8 @@ function DashboardAdmin({ user, setUser }) {
             { id: 'dashboard', label: 'Vue d\'ensemble', icon: 'chart' },
             { id: 'dossiers', label: 'Gestion Dossiers', icon: '📁' },
             { id: 'types', label: 'Types de Dossiers', icon: 'document' },
-            { id: 'statistiques', label: 'Rapports', icon: '📈' }
+            { id: 'statistiques', label: 'Rapports', icon: '📈' },
+            { id: 'rapports', label: 'Statistiques Avancées', icon: 'trending-up' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -999,6 +1173,10 @@ function DashboardAdmin({ user, setUser }) {
               ) : tab.icon === 'document' ? (
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              ) : tab.icon === 'trending-up' ? (
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               ) : (
                 <span className="mr-2">{tab.icon}</span>
@@ -1162,13 +1340,27 @@ function DashboardAdmin({ user, setUser }) {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {dossiers.slice(0, 5).map((dossier) => (
+                    {[...dossiers]
+                      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                      .slice(0, 5)
+                      .map((dossier) => (
                       <div key={dossier.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                         <div className="flex items-center space-x-4">
                           <div className={`w-3 h-3 rounded-full ${getPriorityColor(dossier.priorite)}`}></div>
                           <div>
                             <p className="font-medium text-gray-900">{dossier.numero_ticket}</p>
-                            <p className="text-sm text-gray-600">{dossier.client_nom} {dossier.client_prenom}</p>
+                            <p className="text-sm text-gray-600">
+                              {dossier.client_nom}
+                              {dossier.client_ville_origine && (
+                                <span className="text-blue-600 ml-2 flex items-center">
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  </svg>
+                                  {dossier.client_ville_origine}
+                                </span>
+                              )}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center space-x-4">
@@ -1313,9 +1505,20 @@ function DashboardAdmin({ user, setUser }) {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
                             <div className="text-sm font-medium text-gray-900">
-                              {dossier.client_nom} {dossier.client_prenom}
+                              {dossier.client_nom}
                             </div>
-                            <div className="text-sm text-gray-500">{dossier.telephone}</div>
+                            <div className="text-sm text-gray-500">
+                              {dossier.client_telephone}
+                              {dossier.client_ville_origine && (
+                                <span className="text-blue-600 ml-2 inline-flex items-center">
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  </svg>
+                                  {dossier.client_ville_origine}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1449,48 +1652,40 @@ function DashboardAdmin({ user, setUser }) {
                               {type.actif ? 'Actif' : 'Inactif'}
                             </span>
                             <div className="flex space-x-2">
-                              <button 
-                                onClick={() => setEditingType(type)}
-                                className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-all duration-200"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                Modifier
-                              </button>
-                              <button 
-                                onClick={() => handleTypeAction(type.id, 'toggle')}
-                                className={`flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md transition-all duration-200 ${
-                                  type.actif 
-                                    ? 'text-orange-700 bg-orange-50 border border-orange-200 hover:bg-orange-100 hover:border-orange-300'
-                                    : 'text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 hover:border-green-300'
-                                }`}
-                              >
-                                {type.actif ? (
-                                  <>
+                              {type.actif ? (
+                                // Pour les types actifs : Modifier et Désactiver
+                                <>
+                                  <button 
+                                    onClick={() => setEditingType(type)}
+                                    className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-all duration-200"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    Modifier
+                                  </button>
+                                  <button 
+                                    onClick={() => setTogglingType(type)}
+                                    className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md text-orange-700 bg-orange-50 border border-orange-200 hover:bg-orange-100 hover:border-orange-300 transition-all duration-200"
+                                  >
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                     Désactiver
-                                  </>
-                                ) : (
-                                  <>
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m-2-8V4a2 2 0 012-2h2a2 2 0 012 2v2" />
-                                    </svg>
-                                    Activer
-                                  </>
-                                )}
-                              </button>
-                              <button 
-                                onClick={() => setShowDeleteConfirm(type)}
-                                className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 hover:border-red-300 transition-all duration-200"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Supprimer
-                              </button>
+                                  </button>
+                                </>
+                              ) : (
+                                // Pour les types inactifs : Seulement Réactiver
+                                <button 
+                                  onClick={() => setTogglingType(type)}
+                                  className="flex items-center gap-1 px-3 py-1 text-xs font-medium rounded-md text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 hover:border-green-300 transition-all duration-200"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  Réactiver
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1504,71 +1699,172 @@ function DashboardAdmin({ user, setUser }) {
         )}
 
         {activeTab === 'statistiques' && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-6">Rapports et Statistiques</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Statistiques par statut */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6">
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Répartition par statut</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">En cours</span>
-                      <span className="font-semibold text-blue-600">{stats.en_cours || 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Terminés</span>
-                      <span className="font-semibold text-green-600">{stats.termines || 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">En retard</span>
-                      <span className="font-semibold text-red-600">{stats.retard || 0}</span>
-                    </div>
-                  </div>
+          <div className="space-y-8">
+            {/* En-tête moderne */}
+            <div className="bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 rounded-2xl shadow-2xl p-8 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-3xl font-black tracking-tight mb-2">Tableau de Bord</h3>
+                  <p className="text-purple-200 text-lg font-medium">Analyses & Performance</p>
                 </div>
-                
-                {/* Chiffre d'affaires */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Performance financière</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Revenus réalisés</span>
-                      <span className="font-bold text-green-600">
-                        {(stats.chiffre_affaires || 0).toLocaleString()} Ar
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Dossiers payés</span>
-                      <span className="font-semibold text-green-600">{stats.termines || 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Revenu moyen</span>
-                      <span className="font-semibold text-green-600">
-                        {stats.termines > 0 
-                          ? Math.round((stats.chiffre_affaires || 0) / stats.termines).toLocaleString()
-                          : 0
-                        } Ar
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Types de dossiers les plus demandés</h4>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-gray-600 text-center">Graphiques et statistiques détaillées disponibles prochainement</p>
+                <div className="bg-white/10 backdrop-blur-md rounded-xl p-4">
+                  <svg className="w-12 h-12 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
                 </div>
               </div>
             </div>
+
+            {/* Métriques principales */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {/* Total des dossiers */}
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Total Dossiers</p>
+                    <p className="text-3xl font-black text-gray-900 mt-1">{dossiers.length}</p>
+                  </div>
+                  <div className="bg-blue-100 rounded-full p-3">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* En cours */}
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">En Cours</p>
+                    <p className="text-3xl font-black text-blue-600 mt-1">{stats.en_cours || 0}</p>
+                  </div>
+                  <div className="bg-blue-100 rounded-full p-3">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Terminés */}
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Terminés</p>
+                    <p className="text-3xl font-black text-green-600 mt-1">{stats.termines || 0}</p>
+                  </div>
+                  <div className="bg-green-100 rounded-full p-3">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* En retard */}
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">En Retard</p>
+                    <p className="text-3xl font-black text-red-600 mt-1">{stats.retard || 0}</p>
+                  </div>
+                  <div className="bg-red-100 rounded-full p-3">
+                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.664-.833-2.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Performance financière */}
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
+              <div className="flex items-center justify-between mb-8">
+                <h4 className="text-2xl font-black text-gray-900">Performance Financière</h4>
+                <div className="bg-emerald-100 rounded-full p-2">
+                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Total Encaissé</h5>
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                  </div>
+                  <p className="text-2xl font-black text-emerald-700">
+                    {dossiers.reduce((sum, d) => sum + (parseFloat(d.montant) || 0), 0).toLocaleString()} Ar
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Revenus Terminés</h5>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  </div>
+                  <p className="text-2xl font-black text-blue-700">
+                    {(stats.chiffre_affaires || 0).toLocaleString()} Ar
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wide">En Cours</h5>
+                    <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                  </div>
+                  <p className="text-2xl font-black text-amber-700">
+                    {dossiers.filter(d => d.statut === 'en_cours').reduce((sum, d) => sum + (parseFloat(d.montant) || 0), 0).toLocaleString()} Ar
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Revenu Moyen</h5>
+                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  </div>
+                  <p className="text-2xl font-black text-purple-700">
+                    {stats.termines > 0 
+                      ? Math.round((stats.chiffre_affaires || 0) / stats.termines).toLocaleString()
+                      : 0
+                    } Ar
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Graphiques et analyses avancées */}
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
+              <div className="flex items-center justify-between mb-8">
+                <h4 className="text-2xl font-black text-gray-900">Analyses Détaillées</h4>
+                <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                  Bientôt Disponible
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-xl p-8 text-center">
+                <svg className="mx-auto h-16 w-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <h5 className="text-xl font-bold text-gray-700 mb-2">Graphiques Interactifs</h5>
+                <p className="text-gray-600 font-medium">
+                  Visualisations avancées avec Chart.js, tendances temporelles et analyses prédictives
+                </p>
+              </div>
+            </div>
           </div>
+        )}
+
+        {activeTab === 'rapports' && (
+          <RapportsAvances dossiers={dossiers} />
         )}
       </main>
 
       {/* Modal pour les détails des dossiers */}
       {modalOpen && selectedDossier && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[40] flex items-center justify-center">
           <div className="relative mx-auto p-8 border w-full max-w-2xl shadow-2xl rounded-2xl bg-white max-h-[90vh] overflow-y-auto">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-6">
@@ -1608,16 +1904,28 @@ function DashboardAdmin({ user, setUser }) {
                   <div className="space-y-3">
                     <div>
                       <label className="text-sm font-medium text-gray-700">Nom complet</label>
-                      <p className="text-gray-900 font-medium">{selectedDossier.client_nom} {selectedDossier.client_prenom}</p>
+                      <p className="text-gray-900 font-medium">{selectedDossier.client_nom}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Téléphone</label>
-                      <p className="text-gray-900">{selectedDossier.telephone}</p>
+                      <p className="text-gray-900">{selectedDossier.client_telephone}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Email</label>
-                      <p className="text-gray-900">{selectedDossier.email || 'Non renseigné'}</p>
+                      <p className="text-gray-900">{selectedDossier.client_email || 'Non renseigné'}</p>
                     </div>
+                    {selectedDossier.client_ville_origine && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">Ville d'origine</label>
+                        <p className="text-gray-900 flex items-center">
+                          <svg className="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          {selectedDossier.client_ville_origine}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1779,7 +2087,7 @@ function DashboardAdmin({ user, setUser }) {
 
       {/* Modal pour créer un nouveau dossier */}
       {showCreateForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[45] flex items-center justify-center">
           <div className="relative mx-auto p-8 border w-full max-w-md shadow-2xl rounded-2xl bg-white">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-6">
@@ -1802,6 +2110,15 @@ function DashboardAdmin({ user, setUser }) {
                     <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
                       <span className="text-sm text-green-800">
                         {newDossier.client_nom} {newDossier.client_prenom}
+                        {newDossier.client_ville_origine && (
+                          <span className="text-blue-600 ml-2 inline-flex items-center">
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            {newDossier.client_ville_origine}
+                          </span>
+                        )}
                       </span>
                       <button
                         type="button"
@@ -1811,7 +2128,8 @@ function DashboardAdmin({ user, setUser }) {
                           client_nom: '',
                           client_prenom: '',
                           client_telephone: '',
-                          client_email: ''
+                          client_email: '',
+                          client_ville_origine: ''
                         }))}
                         className="text-green-600 hover:text-green-800"
                       >
@@ -1823,17 +2141,17 @@ function DashboardAdmin({ user, setUser }) {
                       <div className="relative">
                         <input
                           type="text"
-                          value={searchQuery}
+                          value={clientSearchQuery}
                           onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            searchClients(e.target.value);
+                            setClientSearchQuery(e.target.value);
+                            handleClientSearchChange(e.target.value);
                           }}
                           placeholder="Rechercher un client existant..."
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
-                        {clients.length > 0 && (
+                        {clientSearchResults.length > 0 && (
                           <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto">
-                            {clients.map((client) => (
+                            {clientSearchResults.map((client) => (
                               <button
                                 key={client.id}
                                 type="button"
@@ -1858,15 +2176,56 @@ function DashboardAdmin({ user, setUser }) {
                 {!newDossier.client_id && (
                   <>
                     <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
+                      <div className="relative">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nom * (tapez pour rechercher)</label>
                         <input
                           type="text"
                           value={newDossier.client_nom}
-                          onChange={(e) => setNewDossier(prev => ({...prev, client_nom: e.target.value}))}
+                          onChange={(e) => handleClientSearchChange(e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Tapez le nom du client..."
                           required
                         />
+                        
+                        {/* Résultats de recherche en temps réel */}
+                        {clientSearchResults.length > 0 && (
+                          <div className="absolute z-[100] w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {clientSearchResults.map((client) => (
+                              <div
+                                key={client.id}
+                                onClick={() => selectClient(client)}
+                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="font-medium text-gray-900">{client.nom_complet}</div>
+                                <div className="text-sm text-gray-600 flex items-center">
+                                  {client.telephone && (
+                                    <span className="flex items-center">
+                                      📞 {client.telephone}
+                                    </span>
+                                  )}
+                                  {client.ville_origine && (
+                                    <span className="flex items-center ml-2">
+                                      <svg className="w-3 h-3 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      </svg>
+                                      {client.ville_origine}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {isSearchingClients && (
+                          <div className="absolute right-3 top-9 text-gray-400">
+                            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Prénom</label>
@@ -1895,6 +2254,16 @@ function DashboardAdmin({ user, setUser }) {
                         value={newDossier.client_email}
                         onChange={(e) => setNewDossier(prev => ({...prev, client_email: e.target.value}))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ville d'origine</label>
+                      <input
+                        type="text"
+                        value={newDossier.client_ville_origine}
+                        onChange={(e) => setNewDossier(prev => ({...prev, client_ville_origine: e.target.value}))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Ex: Antananarivo, Fianarantsoa..."
                       />
                     </div>
                   </>
@@ -1984,7 +2353,7 @@ function DashboardAdmin({ user, setUser }) {
 
       {/* Modal pour créer un nouveau type */}
       {showCreateTypeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[50] flex items-center justify-center">
           <div className="relative mx-auto p-8 border w-full max-w-lg shadow-2xl rounded-2xl bg-white max-h-[90vh] overflow-y-auto">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-6">
@@ -2093,18 +2462,18 @@ function DashboardAdmin({ user, setUser }) {
                           </div>
                         ) : (
                           piecesCommunes.map((piece) => {
-                            const dejaDansPanier = panierPieces.find(p => p.nom_piece === piece.nom_piece);
+                            const dejaDansPanier = panierPieces.find(p => p.nom_piece === piece.nom);
                             return (
                               <div key={piece.id} className="flex items-center justify-between p-2 bg-white rounded border hover:border-blue-300 transition-colors">
                                 <div className="flex-1">
-                                  <p className="text-sm font-medium text-gray-900">{piece.nom_piece}</p>
+                                  <p className="text-sm font-medium text-gray-900">{piece.nom}</p>
                                   {piece.description && (
                                     <p className="text-xs text-gray-500 mt-1">{piece.description}</p>
                                   )}
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => dejaDansPanier ? retirerPieceDuPanier(piece.nom_piece) : ajouterPieceAuPanier(piece)}
+                                  onClick={() => dejaDansPanier ? retirerPieceDuPanier(piece.nom) : ajouterPieceAuPanier(piece)}
                                   className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
                                     dejaDansPanier
                                       ? 'bg-red-100 text-red-700 hover:bg-red-200'
@@ -2254,9 +2623,374 @@ function DashboardAdmin({ user, setUser }) {
         </div>
       )}
 
+      {/* Modal pour modifier un type existant */}
+      {editingType && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[55] flex items-center justify-center">
+          <div className="relative mx-auto p-8 border w-full max-w-lg shadow-2xl rounded-2xl bg-white max-h-[90vh] overflow-y-auto">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Modifier le type de dossier</h3>
+                <button 
+                  onClick={() => setEditingType(null)} 
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <form onSubmit={(e) => { e.preventDefault(); updateExistingType(); }} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nom du type *</label>
+                  <input
+                    type="text"
+                    value={editingType.nom}
+                    onChange={(e) => setEditingType(prev => ({...prev, nom: e.target.value}))}
+                    placeholder="Ex: Passeport biométrique"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    required
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Tarif (Ar) *</label>
+                    <input
+                      type="number"
+                      value={editingType.tarif}
+                      onChange={(e) => setEditingType(prev => ({...prev, tarif: e.target.value}))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      min="0"
+                      step="0.01"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Délai (jours) *</label>
+                    <input
+                      type="number"
+                      value={editingType.delai_jours}
+                      onChange={(e) => setEditingType(prev => ({...prev, delai_jours: parseInt(e.target.value) || 7}))}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      min="1"
+                      required
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    value={editingType.description || ''}
+                    onChange={(e) => setEditingType(prev => ({...prev, description: e.target.value}))}
+                    rows={4}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="Description détaillée du type de dossier..."
+                  />
+                </div>
+                
+                {/* Section Pièces Requises Existantes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-4">Pièces requises actuelles</label>
+                  <div className="bg-gray-50 rounded-lg p-4 border">
+                    {editingType.pieces_requises && editingType.pieces_requises.length > 0 ? (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {editingType.pieces_requises.map((piece, index) => (
+                          <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                            <div className="flex-1">
+                              <span className="text-sm font-medium text-gray-900">{piece.nom_piece}</span>
+                              {piece.description && (
+                                <p className="text-xs text-gray-500 mt-1">{piece.description}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={piece.obligatoire == 1}
+                                  onChange={() => {
+                                    const updatedPieces = [...editingType.pieces_requises];
+                                    updatedPieces[index].obligatoire = piece.obligatoire == 1 ? 0 : 1;
+                                    setEditingType(prev => ({...prev, pieces_requises: updatedPieces}));
+                                  }}
+                                  className="h-3 w-3 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                />
+                                <span className="text-xs text-gray-600">Obligatoire</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedPieces = editingType.pieces_requises.filter((_, i) => i !== index);
+                                  setEditingType(prev => ({...prev, pieces_requises: updatedPieces}));
+                                }}
+                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-100 rounded"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-gray-500">
+                        <p className="text-sm">Aucune pièce requise</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Bouton pour ajouter des pièces */}
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowPiecesCommunes(!showPiecesCommunes)}
+                      className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      Pièces communes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddPieceForm(!showAddPieceForm)}
+                      className="flex items-center gap-2 px-3 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      Nouvelle pièce
+                    </button>
+                  </div>
+
+                  {/* Catalogue des pièces communes pour modification */}
+                  {showPiecesCommunes && (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <h4 className="text-sm font-medium text-blue-900 mb-3 flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        Catalogue des pièces communes
+                      </h4>
+                      <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+                        {piecesCommunes.length === 0 ? (
+                          <div className="text-center py-4 text-gray-500">
+                            <p className="text-sm">Aucune pièce commune disponible</p>
+                          </div>
+                        ) : (
+                          piecesCommunes.map((piece) => {
+                            const dejaDansType = editingType.pieces_requises?.find(p => p.nom_piece === piece.nom);
+                            return (
+                              <div key={piece.id} className="flex items-center justify-between p-2 bg-white rounded border hover:border-blue-300 transition-colors">
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-900">{piece.nom}</p>
+                                  {piece.description && (
+                                    <p className="text-xs text-gray-500 mt-1">{piece.description}</p>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (dejaDansType) {
+                                      // Retirer la pièce
+                                      const updatedPieces = editingType.pieces_requises.filter(p => p.nom_piece !== piece.nom);
+                                      setEditingType(prev => ({...prev, pieces_requises: updatedPieces}));
+                                    } else {
+                                      // Ajouter la pièce
+                                      const newPiece = {
+                                        nom_piece: piece.nom,
+                                        description: piece.description || '',
+                                        obligatoire: piece.obligatoire ? 1 : 0
+                                      };
+                                      setEditingType(prev => ({
+                                        ...prev, 
+                                        pieces_requises: [...(prev.pieces_requises || []), newPiece]
+                                      }));
+                                    }
+                                  }}
+                                  className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                                    dejaDansType
+                                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                  }`}
+                                >
+                                  {dejaDansType ? 'Retirer' : 'Ajouter'}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Formulaire d'ajout de pièce personnalisée pour modification */}
+                  {showAddPieceForm && (
+                    <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <h4 className="text-sm font-medium text-green-900 mb-3">Créer une nouvelle pièce</h4>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={nouvellePiece}
+                          onChange={(e) => setNouvellePiece(e.target.value)}
+                          placeholder="Nom de la nouvelle pièce..."
+                          className="w-full px-3 py-2 border border-green-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (nouvellePiece.trim()) {
+                                const newPiece = {
+                                  nom_piece: nouvellePiece.trim(),
+                                  description: '',
+                                  obligatoire: 1
+                                };
+                                setEditingType(prev => ({
+                                  ...prev, 
+                                  pieces_requises: [...(prev.pieces_requises || []), newPiece]
+                                }));
+                                setNouvellePiece('');
+                                setShowAddPieceForm(false);
+                              }
+                            }}
+                            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
+                          >
+                            Ajouter
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {setShowAddPieceForm(false); setNouvellePiece('');}}
+                            className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setEditingType(null)}
+                    className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transform hover:scale-105 transition-all duration-300 shadow-lg"
+                  >
+                    Mettre à jour
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmation de suppression */}
+      {deletingType && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[60] flex items-center justify-center">
+          <div className="relative mx-auto p-8 border w-full max-w-md shadow-2xl rounded-2xl bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Confirmer la suppression</h3>
+                <button 
+                  onClick={() => setDeletingType(null)} 
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-600">
+                  Êtes-vous sûr de vouloir supprimer le type "{deletingType.nom}" ? Cette action est irréversible.
+                </p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setDeletingType(null)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteType(deletingType.id)}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all duration-200"
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmation d'activation/désactivation */}
+      {togglingType && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[65] flex items-center justify-center">
+          <div className="relative mx-auto p-8 border w-full max-w-md shadow-2xl rounded-2xl bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Confirmer {togglingType.actif ? 'la désactivation' : 'l\'activation'}
+                </h3>
+                <button 
+                  onClick={() => setTogglingType(null)} 
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-600">
+                  Êtes-vous sûr de vouloir {togglingType.actif ? 'désactiver' : 'activer'} le type "{togglingType.nom}" ?
+                </p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setTogglingType(null)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleType(togglingType.id)}
+                  className={`flex-1 px-4 py-2 text-white rounded-lg focus:outline-none focus:ring-2 transition-all duration-200 ${
+                    togglingType.actif 
+                      ? 'bg-orange-600 hover:bg-orange-700 focus:ring-orange-500' 
+                      : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
+                  }`}
+                >
+                  {togglingType.actif ? 'Désactiver' : 'Activer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de confirmation d'action moderne */}
       {showConfirmModal && confirmAction && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
+        <div className="fixed inset-0 z-[80] overflow-y-auto">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowConfirmModal(false)}></div>
             
@@ -2328,7 +3062,7 @@ function DashboardAdmin({ user, setUser }) {
 
       {/* Modal de confirmation de suppression de type */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
+        <div className="fixed inset-0 z-[60] overflow-y-auto">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowDeleteConfirm(null)}></div>
             
@@ -2377,9 +3111,74 @@ function DashboardAdmin({ user, setUser }) {
         </div>
       )}
 
+      {/* Modal de confirmation d'activation/désactivation de type */}
+      {showToggleConfirm && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto">
+          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowToggleConfirm(null)}></div>
+            
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            
+            <div className="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+              <div className="bg-white px-6 pt-6 pb-4">
+                <div className="sm:flex sm:items-start">
+                  <div className={`mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full sm:mx-0 sm:h-10 sm:w-10 ${
+                    showToggleConfirm.actif ? 'bg-orange-100' : 'bg-green-100'
+                  }`}>
+                    {showToggleConfirm.actif ? (
+                      <svg className="h-6 w-6 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m-2-8V4a2 2 0 012-2h2a2 2 0 012 2v2" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                      {showToggleConfirm.actif ? 'Désactiver' : 'Activer'} le type de dossier
+                    </h3>
+                    <div className="mt-2">
+                      <p className="text-sm text-gray-500">
+                        {showToggleConfirm.actif 
+                          ? `Êtes-vous sûr de vouloir désactiver le type "${showToggleConfirm.nom}" ? Il ne sera plus disponible pour la création de nouveaux dossiers.`
+                          : `Êtes-vous sûr de vouloir activer le type "${showToggleConfirm.nom}" ? Il sera à nouveau disponible pour la création de nouveaux dossiers.`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 px-6 py-3 sm:flex sm:flex-row-reverse">
+                <button
+                  onClick={() => {
+                    handleTypeAction(showToggleConfirm.id, 'toggle');
+                    setShowToggleConfirm(null);
+                  }}
+                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 text-base font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 sm:ml-3 sm:w-auto sm:text-sm ${
+                    showToggleConfirm.actif 
+                      ? 'bg-orange-600 hover:bg-orange-700 focus:ring-orange-500'
+                      : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
+                  }`}
+                >
+                  {showToggleConfirm.actif ? 'Désactiver' : 'Activer'}
+                </button>
+                <button
+                  onClick={() => setShowToggleConfirm(null)}
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast.show && (
-        <div className={`fixed top-6 right-6 z-50 px-6 py-3 rounded-lg shadow-lg text-base font-medium transition-all duration-300 ${
+        <div className={`fixed top-6 right-6 z-[90] px-6 py-3 rounded-lg shadow-lg text-base font-medium transition-all duration-300 ${
           toast.type === 'success' ? 'bg-green-500 text-white' : 
           toast.type === 'error' ? 'bg-red-500 text-white' : 
           'bg-blue-500 text-white'

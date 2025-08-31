@@ -15,9 +15,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 /**
- * API pour la gestion des pièces communes (basée sur pieces_requises)
+ * API pour la gestion des pièces communes
  * GET: Récupère toutes les pièces distinctes utilisées dans le système
- * POST: Retourne success (le panier est géré côté frontend)
+ * POST: Crée une nouvelle pièce commune dans la table pieces_requises
  */
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -28,8 +28,13 @@ try {
             getPiecesCommunes();
             break;
         case 'POST':
-            // Retourne simplement success pour le panier (géré côté frontend)
-            echo json_encode(['success' => true, 'message' => 'Pièce ajoutée au panier']);
+            $input = json_decode(file_get_contents('php://input'), true);
+            if (isset($input['action']) && $input['action'] === 'create') {
+                createPieceCommune($input);
+            } else {
+                // Pour la compatibilité avec l'ancien système (panier)
+                echo json_encode(['success' => true, 'message' => 'Pièce ajoutée au panier']);
+            }
             break;
         default:
             http_response_code(405);
@@ -78,5 +83,66 @@ function getPiecesCommunes() {
         'data' => $piecesFormatees,
         'total' => count($piecesFormatees)
     ]);
+}
+
+/**
+ * Crée une nouvelle pièce commune (type de pièce générique)
+ */
+function createPieceCommune($input) {
+    global $pdo;
+    
+    // Validation des données
+    if (empty($input['nom_piece'])) {
+        echo json_encode(['success' => false, 'message' => 'Le nom de la pièce est requis']);
+        return;
+    }
+    
+    $nom_piece = trim($input['nom_piece']);
+    $description = isset($input['description']) ? trim($input['description']) : '';
+    
+    // Vérifier si cette pièce existe déjà
+    $checkQuery = "SELECT COUNT(*) as count FROM pieces_requises WHERE nom_piece = ?";
+    $checkStmt = $pdo->prepare($checkQuery);
+    $checkStmt->execute([$nom_piece]);
+    $existingCount = $checkStmt->fetch()['count'];
+    
+    if ($existingCount > 0) {
+        echo json_encode(['success' => false, 'message' => 'Cette pièce existe déjà dans le système']);
+        return;
+    }
+    
+    try {
+        // Créer une entrée générique dans pieces_requises
+        // Cette pièce pourra être réutilisée dans différents types de dossiers
+        $query = "INSERT INTO pieces_requises (
+            type_dossier_id, 
+            nom_piece, 
+            description, 
+            obligatoire, 
+            ordre_affichage
+        ) VALUES (
+            NULL,  -- NULL pour indiquer que c'est une pièce générique
+            ?, 
+            ?, 
+            0,     -- Pas obligatoire par défaut
+            999    -- Ordre élevé pour les pièces génériques
+        )";
+        
+        $stmt = $pdo->prepare($query);
+        $stmt->execute([$nom_piece, $description]);
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Pièce à fournir créée avec succès',
+            'data' => [
+                'id' => $pdo->lastInsertId(),
+                'nom_piece' => $nom_piece,
+                'description' => $description
+            ]
+        ]);
+        
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'message' => 'Erreur lors de la création: ' . $e->getMessage()]);
+    }
 }
 ?>
