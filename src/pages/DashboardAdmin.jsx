@@ -2,10 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from "react-router-dom";
 import RapportsAvances from '../components/RapportsAvances';
+import { getCurrentDateTime, generateTicketNumber, formatDateTimeFr } from '../utils/dateUtils.js';
 
 // Utilitaire pour logguer les réponses API
 const logApiResponse = (method, endpoint, data, success, error = null) => {
-  const endpointName = endpoint.split('/').pop();
+  let endpointName = '';
+  if (typeof endpoint === 'string' && endpoint) {
+    endpointName = endpoint.split('/').pop();
+  } else {
+    endpointName = String(endpoint);
+  }
   console.log(`🔵 API Response: ${method} ${endpointName}`);
   console.log('📊 Data:', data);
   console.log(`✅ Success: ${success}`);
@@ -150,61 +156,55 @@ function DashboardAdmin({ user, setUser }) {
     };
   };
 
-  // Helper pour calculer les statistiques côté frontend
-  const calculerStatistiquesFrontend = (dossiers) => {
-    const stats = {
-      total: dossiers.length,
-      en_cours: 0,
-      retard: 0,
-      urgent: 0,
-      bientot: 0,
-      normal: 0,
-      termines: 0,
-      rejetes: 0,
-      chiffre_affaires: 0
-    };
+  // Fonction pour calculer les statistiques côté frontend
+  const calculerStatistiques = (dossiersList) => {
+    if (!Array.isArray(dossiersList) || dossiersList.length === 0) {
+      return {
+        total: 0,
+        en_cours: 0,
+        finis: 0,
+        urgents: 0,
+        retard: 0,
+        nouveaux_ce_mois: 0
+      };
+    }
+
+    const aujourd_hui = new Date();
+    const debutMois = new Date(aujourd_hui.getFullYear(), aujourd_hui.getMonth(), 1);
     
-    dossiers.forEach(dossier => {
-      const priorite = dossier.priorite || calculerPriorite(dossier);
+    const stats = {
+      total: dossiersList.length,
+      en_cours: 0,
+      finis: 0,
+      urgents: 0,
+      retard: 0,
+      nouveaux_ce_mois: 0
+    };
+
+    dossiersList.forEach(dossier => {
+      // Compteur par statut
+      if (dossier.statut === 'en_cours') stats.en_cours++;
+      if (dossier.statut === 'fini') stats.finis++;
       
-      // Compter d'abord par statut
-      if (dossier.statut === 'fini') {
-        stats.termines++;
-        stats.chiffre_affaires += parseFloat(dossier.montant) || 0;
-      } else if (dossier.statut === 'rejete') {
-        stats.rejetes++;
-      } else if (dossier.statut === 'en_cours') {
-        stats.en_cours++;
-        
-        // Puis par priorité pour les dossiers en cours
-        switch (priorite) {
-          case 'retard':
-            stats.retard++;
-            break;
-          case 'urgent':
-            stats.urgent++;
-            break;
-          case 'bientot':
-            stats.bientot++;
-            break;
-          case 'normal':
-            stats.normal++;
-            break;
+      // Compteur nouveaux ce mois
+      if (dossier.created_at) {
+        const dateCreation = new Date(dossier.created_at);
+        if (dateCreation >= debutMois) {
+          stats.nouveaux_ce_mois++;
         }
       }
+      
+      // Calcul urgence et retard (seulement pour dossiers en cours)
+      if (dossier.statut === 'en_cours' && dossier.date_fin_prevue) {
+        const echeance = new Date(dossier.date_fin_prevue);
+        const diff_jours = Math.ceil((echeance - aujourd_hui) / (1000 * 60 * 60 * 24));
+        
+        if (diff_jours < 0) stats.retard++;
+        else if (diff_jours <= 2) stats.urgents++;
+      }
     });
-    
-    return stats;
-  };
 
-  // Helper pour logger les réponses API
-  const logApiResponse = (endpoint, data, method = 'GET') => {
-    console.group(`🔵 API Response: ${method} ${endpoint}`);
-    console.log('📊 Data:', data);
-    console.log('✅ Success:', data.success);
-    if (data.message) console.log('💬 Message:', data.message);
-    if (data.error) console.error('❌ Error:', data.error);
-    console.groupEnd();
+    return stats;
   };
 
   // Fonction pour exécuter une action sur un dossier via l'API
@@ -319,7 +319,7 @@ function DashboardAdmin({ user, setUser }) {
         setDossiers(dossiersEnrichis);
         
         // Calculer les statistiques côté frontend
-        const statsFrontend = calculerStatistiquesFrontend(dossiersEnrichis);
+        const statsFrontend = calculerStatistiques(dossiersEnrichis);
         console.log('📊 Stats calculées frontend:', statsFrontend);
         
         setStats(statsFrontend);

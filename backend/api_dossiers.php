@@ -162,7 +162,14 @@ function createDossier() {
     
     $input = json_decode(file_get_contents('php://input'), true);
     
-    // Validation des données requises
+    // Validation des données requises pour l'assistant
+    if (isset($input['client_nom']) && isset($input['client_prenom']) && isset($input['client_email'])) {
+        // Mode assistant : création avec informations client intégrées
+        createDossierAssistant($input);
+        return;
+    }
+    
+    // Mode admin : validation classique
     $required = ['client_id', 'type_dossier_id', 'date_fin_prevue', 'montant'];
     foreach ($required as $field) {
         if (!isset($input[$field]) || empty($input[$field])) {
@@ -201,6 +208,98 @@ function createDossier() {
         'id' => $dossierId,
         'numero_ticket' => $numero_ticket
     ]);
+}
+
+/**
+ * Crée un dossier en mode assistant avec toutes les informations client
+ */
+function createDossierAssistant($input) {
+    global $pdo;
+    
+    // Validation des champs obligatoires
+    $required = ['client_nom', 'client_prenom', 'client_email', 'type_id'];
+    foreach ($required as $field) {
+        if (!isset($input[$field]) || empty(trim($input[$field]))) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => "Le champ $field est requis"
+            ]);
+            return;
+        }
+    }
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Générer le numéro de dossier unique
+        $numeroDossier = generateNumeroDossier();
+        
+        // Récupérer le prix du type de dossier
+        $stmtType = $pdo->prepare("SELECT nom, prix FROM types_dossier WHERE id = ? AND active = 1");
+        $stmtType->execute([$input['type_id']]);
+        $typeDossier = $stmtType->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$typeDossier) {
+            throw new Exception('Type de dossier non trouvé ou inactif');
+        }
+        
+        // Insérer le dossier
+        $stmt = $pdo->prepare("
+            INSERT INTO dossiers (
+                numero_dossier, type_id, client_nom, client_prenom, client_email, 
+                client_telephone, client_adresse, client_ville_origine,
+                montant, commentaire, statut, date_creation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nouveau', NOW())
+        ");
+        
+        $stmt->execute([
+            $numeroDossier,
+            $input['type_id'],
+            trim($input['client_nom']),
+            trim($input['client_prenom']),
+            trim($input['client_email']),
+            trim($input['client_telephone'] ?? ''),
+            trim($input['client_adresse'] ?? ''),
+            trim($input['client_ville_origine'] ?? ''),
+            $input['montant'] ?: $typeDossier['prix'],
+            trim($input['commentaire'] ?? '')
+        ]);
+        
+        $dossierId = $pdo->lastInsertId();
+        
+        // Récupérer les pièces requises pour ce type
+        $stmtPieces = $pdo->prepare("
+            SELECT pr.*, td.nom_piece, td.description
+            FROM pieces_requises pr
+            JOIN types_documents td ON pr.type_document_id = td.id
+            WHERE pr.type_dossier_id = ?
+            ORDER BY pr.obligatoire DESC, td.nom_piece ASC
+        ");
+        $stmtPieces->execute([$input['type_id']]);
+        $piecesRequises = $stmtPieces->fetchAll(PDO::FETCH_ASSOC);
+        
+        $pdo->commit();
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Dossier créé avec succès',
+            'dossier' => [
+                'id' => $dossierId,
+                'numero_dossier' => $numeroDossier,
+                'type_nom' => $typeDossier['nom']
+            ],
+            'pieces_requises' => $piecesRequises
+        ]);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Erreur lors de la création : ' . $e->getMessage()
+        ]);
+    }
 }
 
 /**
@@ -300,5 +399,30 @@ function generateTicketNumber() {
     }
     
     return sprintf("DOC-%s-%s-%03d", $year, $month, $num);
+}
+
+/**
+ * Génère un numéro de dossier unique pour l'assistant
+ */
+function generateNumeroDossier() {
+    global $pdo;
+    
+    $year = date('Y');
+    $month = date('m');
+    
+    // Récupérer le dernier numéro pour ce mois
+    $query = "SELECT numero_dossier FROM dossiers WHERE numero_dossier LIKE ? ORDER BY id DESC LIMIT 1";
+    $stmt = $pdo->prepare($query);
+    $stmt->execute(["TK$year$month%"]);
+    $last = $stmt->fetch();
+    
+    if ($last) {
+        // Extraire le numéro et l'incrémenter
+        $num = intval(substr($last['numero_dossier'], 6)) + 1;
+    } else {
+        $num = 1;
+    }
+    
+    return sprintf("TK%s%s%03d", $year, $month, $num);
 }
 ?>

@@ -15,8 +15,12 @@ export const API_ENDPOINTS = {
   // Créer dossier
   creerDossier: `${API_BASE_URL}/api_dossiers.php`,
   
+  // Recherche par ticket (pour assistant)
+  search: `${API_BASE_URL}/api_search.php`,
+  
   // Types de dossiers
   typesDossier: `${API_BASE_URL}/api_types.php`,
+  types: `${API_BASE_URL}/api_types.php`,
   
   // Types de documents  
   typesDocuments: `${API_BASE_URL}/api_types.php`,
