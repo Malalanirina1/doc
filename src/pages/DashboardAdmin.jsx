@@ -1052,7 +1052,7 @@ function DashboardAdmin({ user, setUser }) {
                   </div>
                   <div className="ml-3">
                     <p className="text-xs font-medium text-gray-600">Total</p>
-                    <p className="text-2xl font-bold text-blue-600">{stats.total_dossiers || 0}</p>
+                    <p className="text-2xl font-bold text-blue-600">{stats.total || 0}</p>
                   </div>
                 </div>
               </div>
