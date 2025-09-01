@@ -71,6 +71,32 @@ function DashboardAdmin({ user, setUser }) {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   
+  // **États pour la gestion des utilisateurs**
+  const [users, setUsers] = useState([]);
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [showChangeUserPasswordModal, setShowChangeUserPasswordModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    password: '',
+    confirmPassword: '',
+    role: 'assistant',
+    nom_complet: ''
+  });
+  const [editUser, setEditUser] = useState({
+    id: '',
+    username: '',
+    role: '',
+    nom_complet: ''
+  });
+  const [userPasswordForm, setUserPasswordForm] = useState({
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userError, setUserError] = useState('');
+  
   // États pour les formulaires
   const [newDossier, setNewDossier] = useState({
     client_id: '',
@@ -364,6 +390,216 @@ function DashboardAdmin({ user, setUser }) {
     }
   };
 
+  // **NOUVELLES FONCTIONS** pour la gestion des utilisateurs
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const response = await fetch('http://localhost/doc/api_users_management.php?action=list', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setUsers(data.users);
+      } else {
+        setUserError(data.message);
+      }
+    } catch (error) {
+      setUserError('Erreur lors du chargement des utilisateurs');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    
+    if (!newUser.username || !newUser.password || !newUser.nom_complet) {
+      setUserError('Tous les champs sont obligatoires');
+      return;
+    }
+    
+    if (newUser.password !== newUser.confirmPassword) {
+      setUserError('Les mots de passe ne correspondent pas');
+      return;
+    }
+    
+    if (newUser.password.length < 6) {
+      setUserError('Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+    
+    setUsersLoading(true);
+    setUserError('');
+    
+    try {
+      const response = await fetch('http://localhost/doc/api_users_management.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          action: 'create',
+          username: newUser.username,
+          password: newUser.password,
+          role: newUser.role,
+          nom_complet: newUser.nom_complet
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Utilisateur créé avec succès !', 'success');
+        setShowCreateUserModal(false);
+        setNewUser({
+          username: '',
+          password: '',
+          confirmPassword: '',
+          role: 'assistant',
+          nom_complet: ''
+        });
+        loadUsers();
+      } else {
+        setUserError(data.message);
+      }
+    } catch (error) {
+      setUserError('Erreur lors de la création');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleEditUser = async (e) => {
+    e.preventDefault();
+    
+    setUsersLoading(true);
+    setUserError('');
+    
+    try {
+      const response = await fetch('http://localhost/doc/api_users_management.php', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          action: 'update',
+          user_id: editUser.id,
+          username: editUser.username,
+          role: editUser.role,
+          nom_complet: editUser.nom_complet
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Utilisateur modifié avec succès !', 'success');
+        setShowEditUserModal(false);
+        loadUsers();
+      } else {
+        setUserError(data.message);
+      }
+    } catch (error) {
+      setUserError('Erreur lors de la modification');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleChangeUserPassword = async (e) => {
+    e.preventDefault();
+    
+    if (!userPasswordForm.newPassword || !userPasswordForm.confirmPassword) {
+      setUserError('Veuillez remplir tous les champs');
+      return;
+    }
+    
+    if (userPasswordForm.newPassword !== userPasswordForm.confirmPassword) {
+      setUserError('Les mots de passe ne correspondent pas');
+      return;
+    }
+    
+    if (userPasswordForm.newPassword.length < 6) {
+      setUserError('Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+    
+    setUsersLoading(true);
+    setUserError('');
+    
+    try {
+      const response = await fetch('http://localhost/doc/api_users_management.php', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          action: 'change_password',
+          user_id: selectedUser.id,
+          new_password: userPasswordForm.newPassword
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Mot de passe modifié avec succès !', 'success');
+        setShowChangeUserPasswordModal(false);
+        setUserPasswordForm({
+          newPassword: '',
+          confirmPassword: ''
+        });
+      } else {
+        setUserError(data.message);
+      }
+    } catch (error) {
+      setUserError('Erreur lors de la modification');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId, username) => {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer l'utilisateur "${username}" ?`)) {
+      return;
+    }
+    
+    setUsersLoading(true);
+    
+    try {
+      const response = await fetch('http://localhost/doc/api_users_management.php', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          user_id: userId
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Utilisateur supprimé avec succès !', 'success');
+        loadUsers();
+      } else {
+        showToast(data.message, 'error');
+      }
+    } catch (error) {
+      showToast('Erreur lors de la suppression', 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
   // Fonction pour exécuter une action sur un dossier via l'API
   const executerActionDossier = async (dossierId, action, params = {}) => {
     try {
@@ -398,6 +634,7 @@ function DashboardAdmin({ user, setUser }) {
     loadData();
     loadTypesDocuments();
     loadPiecesCommunes();
+    loadUsers();
   }, []);
 
   // Charger les alertes après le chargement des dossiers
@@ -1325,6 +1562,7 @@ function DashboardAdmin({ user, setUser }) {
             { id: 'dashboard', label: 'Vue d\'ensemble', icon: 'chart' },
             { id: 'dossiers', label: 'Gestion Dossiers', icon: '📁' },
             { id: 'types', label: 'Types de Dossiers', icon: 'document' },
+            { id: 'users', label: 'Gestion Utilisateurs', icon: 'users' },
             { id: 'statistiques', label: 'Rapports', icon: '📈' },
             { id: 'rapports', label: 'Statistiques Avancées', icon: 'trending-up' }
           ].map(tab => (
@@ -1344,6 +1582,10 @@ function DashboardAdmin({ user, setUser }) {
               ) : tab.icon === 'document' ? (
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              ) : tab.icon === 'users' ? (
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
                 </svg>
               ) : tab.icon === 'trending-up' ? (
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2064,6 +2306,133 @@ function DashboardAdmin({ user, setUser }) {
                 <p className="text-gray-600 font-medium">
                   Visualisations avancées avec Chart.js, tendances temporelles et analyses prédictives
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Onglet Gestion Utilisateurs */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-lg border border-gray-100">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-semibold text-gray-900">Gestion des Utilisateurs</h3>
+                  <button
+                    onClick={() => setShowCreateUserModal(true)}
+                    className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    Nouvel Utilisateur
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                {usersLoading ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Utilisateur
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Rôle
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Date de création
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Dernière connexion
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {users.map((userItem) => (
+                          <tr key={userItem.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {userItem.nom_complet}
+                                </div>
+                                <div className="text-sm text-gray-500">@{userItem.username}</div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                userItem.role === 'admin' 
+                                  ? 'bg-purple-100 text-purple-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {userItem.role === 'admin' ? 'Administrateur' : 'Assistant'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {userItem.created_at ? new Date(userItem.created_at).toLocaleDateString('fr-FR') : '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {userItem.last_login ? new Date(userItem.last_login).toLocaleDateString('fr-FR') : 'Jamais'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => {
+                                    setEditUser({
+                                      id: userItem.id,
+                                      username: userItem.username,
+                                      role: userItem.role,
+                                      nom_complet: userItem.nom_complet
+                                    });
+                                    setShowEditUserModal(true);
+                                  }}
+                                  className="text-indigo-600 hover:text-indigo-900 font-medium"
+                                >
+                                  Modifier
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(userItem);
+                                    setShowChangeUserPasswordModal(true);
+                                  }}
+                                  className="text-yellow-600 hover:text-yellow-900 font-medium"
+                                >
+                                  Mot de passe
+                                </button>
+                                {userItem.id !== user?.id && (
+                                  <button
+                                    onClick={() => handleDeleteUser(userItem.id, userItem.username)}
+                                    className="text-red-600 hover:text-red-900 font-medium"
+                                  >
+                                    Supprimer
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    
+                    {users.length === 0 && !usersLoading && (
+                      <div className="text-center py-8">
+                        <svg className="h-12 w-12 text-gray-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                        </svg>
+                        <p className="text-gray-500">Aucun utilisateur trouvé</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3648,6 +4017,242 @@ function DashboardAdmin({ user, setUser }) {
                   disabled={passwordLoading}
                 >
                   {passwordLoading ? 'Modification...' : 'Modifier'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Créer Utilisateur */}
+      {showCreateUserModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">Créer un Nouvel Utilisateur</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              handleCreateUser({
+                username: formData.get('username'),
+                password: formData.get('password'),
+                role: formData.get('role'),
+                nom_complet: formData.get('nom_complet')
+              });
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom d'utilisateur
+                  </label>
+                  <input
+                    type="text"
+                    name="username"
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom complet
+                  </label>
+                  <input
+                    type="text"
+                    name="nom_complet"
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mot de passe
+                  </label>
+                  <input
+                    type="password"
+                    name="password"
+                    required
+                    minLength="6"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Rôle
+                  </label>
+                  <select
+                    name="role"
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="assistant">Assistant</option>
+                    <option value="admin">Administrateur</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateUserModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={usersLoading}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {usersLoading ? 'Création...' : 'Créer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Modifier Utilisateur */}
+      {showEditUserModal && editUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">Modifier l'Utilisateur</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              handleEditUser(editUser.id, {
+                username: formData.get('username'),
+                role: formData.get('role'),
+                nom_complet: formData.get('nom_complet')
+              });
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom d'utilisateur
+                  </label>
+                  <input
+                    type="text"
+                    name="username"
+                    defaultValue={editUser.username}
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom complet
+                  </label>
+                  <input
+                    type="text"
+                    name="nom_complet"
+                    defaultValue={editUser.nom_complet}
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Rôle
+                  </label>
+                  <select
+                    name="role"
+                    defaultValue={editUser.role}
+                    required
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="assistant">Assistant</option>
+                    <option value="admin">Administrateur</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditUserModal(false);
+                    setEditUser(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={usersLoading}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {usersLoading ? 'Modification...' : 'Modifier'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Changer Mot de Passe Utilisateur */}
+      {showChangeUserPasswordModal && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">
+              Changer le Mot de Passe - {selectedUser.nom_complet}
+            </h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const newPassword = formData.get('new_password');
+              const confirmPassword = formData.get('confirm_password');
+              
+              if (newPassword !== confirmPassword) {
+                showToast('Les mots de passe ne correspondent pas', 'error');
+                return;
+              }
+              
+              handleChangeUserPassword(selectedUser.id, newPassword);
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nouveau mot de passe
+                  </label>
+                  <input
+                    type="password"
+                    name="new_password"
+                    required
+                    minLength="6"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Confirmer le nouveau mot de passe
+                  </label>
+                  <input
+                    type="password"
+                    name="confirm_password"
+                    required
+                    minLength="6"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChangeUserPasswordModal(false);
+                    setSelectedUser(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={usersLoading}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50"
+                >
+                  {usersLoading ? 'Modification...' : 'Changer le Mot de Passe'}
                 </button>
               </div>
             </form>
