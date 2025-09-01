@@ -394,7 +394,7 @@ function DashboardAdmin({ user, setUser }) {
   const loadUsers = async () => {
     setUsersLoading(true);
     try {
-      const response = await fetch('http://localhost/doc/api_users_management.php?action=list', {
+      const response = await fetch('http://localhost/doc/api_users_management.php', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -414,26 +414,18 @@ function DashboardAdmin({ user, setUser }) {
     }
   };
 
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    
-    if (!newUser.username || !newUser.password || !newUser.nom_complet) {
-      setUserError('Tous les champs sont obligatoires');
+  const handleCreateUser = async (userData) => {
+    if (!userData.username || !userData.password || !userData.nom_complet) {
+      showToast('Tous les champs sont obligatoires', 'error');
       return;
     }
     
-    if (newUser.password !== newUser.confirmPassword) {
-      setUserError('Les mots de passe ne correspondent pas');
-      return;
-    }
-    
-    if (newUser.password.length < 6) {
-      setUserError('Le mot de passe doit contenir au moins 6 caractères');
+    if (userData.password.length < 6) {
+      showToast('Le mot de passe doit contenir au moins 6 caractères', 'error');
       return;
     }
     
     setUsersLoading(true);
-    setUserError('');
     
     try {
       const response = await fetch('http://localhost/doc/api_users_management.php', {
@@ -442,13 +434,7 @@ function DashboardAdmin({ user, setUser }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({
-          action: 'create',
-          username: newUser.username,
-          password: newUser.password,
-          role: newUser.role,
-          nom_complet: newUser.nom_complet
-        })
+        body: JSON.stringify(userData)
       });
       
       const data = await response.json();
@@ -474,11 +460,8 @@ function DashboardAdmin({ user, setUser }) {
     }
   };
 
-  const handleEditUser = async (e) => {
-    e.preventDefault();
-    
+  const handleEditUser = async (userId, userData) => {
     setUsersLoading(true);
-    setUserError('');
     
     try {
       const response = await fetch('http://localhost/doc/api_users_management.php', {
@@ -488,25 +471,24 @@ function DashboardAdmin({ user, setUser }) {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          action: 'update',
-          user_id: editUser.id,
-          username: editUser.username,
-          role: editUser.role,
-          nom_complet: editUser.nom_complet
+          user_id: userId,
+          ...userData
         })
       });
       
       const data = await response.json();
       
       if (data.success) {
-        showToast('Utilisateur modifié avec succès !', 'success');
+        showToast('Utilisateur modifié avec succès', 'success');
         setShowEditUserModal(false);
+        setEditUser(null);
         loadUsers();
       } else {
-        setUserError(data.message);
+        showToast(data.message || 'Erreur lors de la modification', 'error');
       }
     } catch (error) {
-      setUserError('Erreur lors de la modification');
+      console.error('Erreur:', error);
+      showToast('Erreur de connexion', 'error');
     } finally {
       setUsersLoading(false);
     }
@@ -567,7 +549,14 @@ function DashboardAdmin({ user, setUser }) {
   };
 
   const handleDeleteUser = async (userId, username) => {
-    if (!confirm(`Êtes-vous sûr de vouloir supprimer l'utilisateur "${username}" ?`)) {
+    if (!window.confirm(`⚠️ ATTENTION ⚠️\n\nÊtes-vous absolument sûr de vouloir supprimer l'utilisateur "${username}" ?\n\nCette action est IRRÉVERSIBLE et supprimera définitivement :\n- Le compte utilisateur\n- Tous ses accès au système\n- Son historique de connexion\n\nTapez "SUPPRIMER" pour confirmer cette action dangereuse.`)) {
+      return;
+    }
+    
+    // Double confirmation avec prompt
+    const confirmText = prompt(`Pour confirmer la suppression de "${username}", tapez exactement : SUPPRIMER`);
+    if (confirmText !== 'SUPPRIMER') {
+      showToast('Suppression annulée - texte de confirmation incorrect', 'error');
       return;
     }
     

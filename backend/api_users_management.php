@@ -49,57 +49,53 @@ try {
     switch ($method) {
         case 'GET':
             // Récupérer tous les utilisateurs
-            if (isset($_GET['action']) && $_GET['action'] === 'list') {
-                $stmt = $pdo->query("SELECT id, username, role, nom_complet, created_at FROM users ORDER BY created_at DESC");
-                $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
-                echo json_encode([
-                    'success' => true,
-                    'users' => $users
-                ]);
-            }
+            $stmt = $pdo->query("SELECT id, username, role, nom_complet, created_at FROM users ORDER BY created_at DESC");
+            $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            echo json_encode([
+                'success' => true,
+                'users' => $users
+            ]);
             break;
 
         case 'POST':
             // Créer un nouvel utilisateur
-            if (isset($input['action']) && $input['action'] === 'create') {
-                $username = $input['username'] ?? '';
-                $password = $input['password'] ?? '';
-                $role = $input['role'] ?? 'assistant';
-                $nom_complet = $input['nom_complet'] ?? '';
+            $username = $input['username'] ?? '';
+            $password = $input['password'] ?? '';
+            $role = $input['role'] ?? 'assistant';
+            $nom_complet = $input['nom_complet'] ?? '';
 
-                // Validation
-                if (empty($username) || empty($password) || empty($nom_complet)) {
-                    echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
-                    exit();
-                }
+            // Validation
+            if (empty($username) || empty($password) || empty($nom_complet)) {
+                echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
+                exit();
+            }
 
-                if (strlen($password) < 6) {
-                    echo json_encode(['success' => false, 'message' => 'Le mot de passe doit contenir au moins 6 caractères']);
-                    exit();
-                }
+            if (strlen($password) < 6) {
+                echo json_encode(['success' => false, 'message' => 'Le mot de passe doit contenir au moins 6 caractères']);
+                exit();
+            }
 
-                // Vérifier si l'utilisateur existe déjà
-                $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-                $stmt->execute([$username]);
-                if ($stmt->fetch()) {
-                    echo json_encode(['success' => false, 'message' => 'Ce nom d\'utilisateur existe déjà']);
-                    exit();
-                }
+            // Vérifier si l'utilisateur existe déjà
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->execute([$username]);
+            if ($stmt->fetch()) {
+                echo json_encode(['success' => false, 'message' => 'Ce nom d\'utilisateur existe déjà']);
+                exit();
+            }
 
-                // Créer l'utilisateur
-                $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO users (username, password, role, nom_complet, created_at) VALUES (?, ?, ?, ?, NOW())");
-                
-                if ($stmt->execute([$username, $hashedPassword, $role, $nom_complet])) {
-                    echo json_encode([
-                        'success' => true,
-                        'message' => 'Utilisateur créé avec succès',
-                        'user_id' => $pdo->lastInsertId()
-                    ]);
-                } else {
-                    echo json_encode(['success' => false, 'message' => 'Erreur lors de la création de l\'utilisateur']);
-                }
+            // Créer l'utilisateur
+            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $pdo->prepare("INSERT INTO users (username, password, role, nom_complet, created_at) VALUES (?, ?, ?, ?, NOW())");
+            
+            if ($stmt->execute([$username, $hashedPassword, $role, $nom_complet])) {
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Utilisateur créé avec succès',
+                    'user_id' => $pdo->lastInsertId()
+                ]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Erreur lors de la création de l\'utilisateur']);
             }
             break;
 
