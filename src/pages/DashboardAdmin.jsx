@@ -48,6 +48,17 @@ function DashboardAdmin({ user, setUser }) {
   // États pour la recherche de clients
   const [clientSearchResults, setClientSearchResults] = useState([]);
   const [isSearchingClients, setIsSearchingClients] = useState(false);
+  
+  // **NOUVEAUX États pour les modals des statistiques**
+  const [showUrgentModal, setShowUrgentModal] = useState(false);
+  const [showRetardModal, setShowRetardModal] = useState(false);
+  const [showBientotModal, setShowBientotModal] = useState(false);
+  const [urgentDossiers, setUrgentDossiers] = useState([]);
+  const [retardDossiers, setRetardDossiers] = useState([]);
+  const [bientotDossiers, setBientotDossiers] = useState([]);
+  
+  // **État pour le toast de statistiques**
+  const [showStatsToast, setShowStatsToast] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   
   // États pour les formulaires
@@ -235,6 +246,57 @@ function DashboardAdmin({ user, setUser }) {
     return stats;
   };
 
+  // **NOUVELLES FONCTIONS** pour filtrer les dossiers par catégorie
+  const filtrerDossiersPriorite = (dossiersList, type) => {
+    const aujourd_hui = new Date();
+    
+    return dossiersList.filter(dossier => {
+      if ((dossier.statut !== 'en_cours' && dossier.statut !== 'en_attente') || !dossier.date_fin_prevue) {
+        return false;
+      }
+      
+      const echeance = new Date(dossier.date_fin_prevue);
+      const diff_jours = Math.ceil((echeance - aujourd_hui) / (1000 * 60 * 60 * 24));
+      
+      switch(type) {
+        case 'retard':
+          return diff_jours < 0;
+        case 'urgent':
+          return diff_jours >= 0 && diff_jours <= 1;
+        case 'bientot':
+          return diff_jours >= 2 && diff_jours <= 3;
+        default:
+          return false;
+      }
+    });
+  };
+
+  // **NOUVELLE FONCTION** pour ouvrir les modals avec les dossiers filtrés
+  const ouvrirModalPriorite = (type) => {
+    const dossiersFiltrés = filtrerDossiersPriorite(dossiers, type);
+    
+    switch(type) {
+      case 'retard':
+        setRetardDossiers(dossiersFiltrés);
+        setShowRetardModal(true);
+        break;
+      case 'urgent':
+        setUrgentDossiers(dossiersFiltrés);
+        setShowUrgentModal(true);
+        break;
+      case 'bientot':
+        setBientotDossiers(dossiersFiltrés);
+        setShowBientotModal(true);
+        break;
+    }
+  };
+
+  // **NOUVELLE FONCTION** pour afficher le toast des statistiques
+  const afficherToastStats = () => {
+    setShowStatsToast(true);
+    setTimeout(() => setShowStatsToast(false), 5000);
+  };
+
   // Fonction pour exécuter une action sur un dossier via l'API
   const executerActionDossier = async (dossierId, action, params = {}) => {
     try {
@@ -351,6 +413,11 @@ function DashboardAdmin({ user, setUser }) {
         console.log('📊 Stats calculées frontend:', statsFrontend);
         
         setStats(statsFrontend);
+        
+        // **NOUVEAU** : Afficher automatiquement le toast des statistiques
+        setTimeout(() => {
+          afficherToastStats();
+        }, 1000); // Délai d'1 seconde pour laisser l'interface se charger
       } else {
         console.log('❌ API returned error:', data);
         showToast('Erreur lors du chargement des dossiers', 'error');
@@ -1219,31 +1286,40 @@ function DashboardAdmin({ user, setUser }) {
       <main className="w-full px-6 sm:px-8 py-8">
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
-            {/* Alertes */}
-            {alertes.length > 0 && (
-              <div className="bg-gradient-to-r from-red-50 to-orange-50 border-l-4 border-red-400 p-6 rounded-lg">
-                <div className="flex items-center mb-4">
-                  <div className="flex-shrink-0">
-                    <svg className="h-6 w-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 19.5c-.77.833.192 2.5 1.732 2.5z" />
+            {/* Toast de statistiques remplace les alertes */}
+            {showStatsToast && (
+              <div className="fixed top-20 right-4 bg-white rounded-lg shadow-2xl border border-gray-200 p-4 z-50 min-w-[300px]">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                    <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
+                    Aperçu Rapide
+                  </h3>
+                  <button
+                    onClick={() => setShowStatsToast(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-2 bg-red-50 rounded-lg">
+                    <span className="text-sm font-medium text-red-800">🚨 En retard</span>
+                    <span className="text-lg font-bold text-red-600">{stats.retard || 0}</span>
                   </div>
-                  <div className="ml-3">
-                    <h3 className="text-lg font-medium text-red-800">Alertes importantes ({alertes.length})</h3>
-                    <div className="mt-2 space-y-1">
-                      {alertes.slice(0, 3).map((alerte, index) => (
-                        <p key={index} className="text-sm text-red-700">
-                          • {alerte.titre} - {alerte.message}
-                        </p>
-                      ))}
-                      {alertes.length > 3 && (
-                        <p className="text-sm text-red-600 font-medium">
-                          ... et {alertes.length - 3} autres alertes
-                        </p>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-between p-2 bg-orange-50 rounded-lg">
+                    <span className="text-sm font-medium text-orange-800">⚡ Urgent</span>
+                    <span className="text-lg font-bold text-orange-600">{stats.urgents || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-yellow-50 rounded-lg">
+                    <span className="text-sm font-medium text-yellow-800">⏰ Bientôt</span>
+                    <span className="text-lg font-bold text-yellow-600">{stats.bientot_echeance || 0}</span>
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-3 text-center">Cliquez sur les cartes pour plus de détails</p>
               </div>
             )}
 
@@ -1263,7 +1339,10 @@ function DashboardAdmin({ user, setUser }) {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300">
+              <div 
+                onClick={() => ouvrirModalPriorite('retard')}
+                className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300 cursor-pointer hover:bg-red-50"
+              >
                 <div className="flex items-center">
                   <div className="p-2 rounded-full bg-gradient-to-r from-red-500 to-red-600">
                     <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1277,7 +1356,10 @@ function DashboardAdmin({ user, setUser }) {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300">
+              <div 
+                onClick={() => ouvrirModalPriorite('urgent')}
+                className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300 cursor-pointer hover:bg-orange-50"
+              >
                 <div className="flex items-center">
                   <div className="p-2 rounded-full bg-gradient-to-r from-orange-500 to-orange-600">
                     <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1291,7 +1373,10 @@ function DashboardAdmin({ user, setUser }) {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300">
+              <div 
+                onClick={() => ouvrirModalPriorite('bientot')}
+                className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 hover:shadow-xl transition-all duration-300 cursor-pointer hover:bg-yellow-50"
+              >
                 <div className="flex items-center">
                   <div className="p-2 rounded-full bg-gradient-to-r from-yellow-500 to-yellow-600">
                     <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3222,6 +3307,179 @@ function DashboardAdmin({ user, setUser }) {
                   Annuler
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* **NOUVELLES MODALS** pour les listes de dossiers par priorité */}
+      
+      {/* Modal Dossiers en Retard */}
+      {showRetardModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold flex items-center">
+                  <svg className="w-8 h-8 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Dossiers en Retard ({retardDossiers.length})
+                </h2>
+                <button 
+                  onClick={() => setShowRetardModal(false)}
+                  className="text-white hover:text-gray-200"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {retardDossiers.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">Aucun dossier en retard</p>
+              ) : (
+                <div className="space-y-4">
+                  {retardDossiers.map((dossier) => (
+                    <div key={dossier.id} className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{dossier.numero_ticket}</h3>
+                          <p className="text-sm text-gray-600">{dossier.nom_client} - {dossier.type_document}</p>
+                          <p className="text-sm text-red-600 font-medium">
+                            En retard de {Math.abs(dossier.jours_restants)} jour(s)
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedDossier(dossier);
+                            setShowRetardModal(false);
+                            setModalOpen(true);
+                          }}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                        >
+                          Voir détails
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dossiers Urgents */}
+      {showUrgentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold flex items-center">
+                  <svg className="w-8 h-8 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Dossiers Urgents ({urgentDossiers.length})
+                </h2>
+                <button 
+                  onClick={() => setShowUrgentModal(false)}
+                  className="text-white hover:text-gray-200"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {urgentDossiers.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">Aucun dossier urgent</p>
+              ) : (
+                <div className="space-y-4">
+                  {urgentDossiers.map((dossier) => (
+                    <div key={dossier.id} className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{dossier.numero_ticket}</h3>
+                          <p className="text-sm text-gray-600">{dossier.nom_client} - {dossier.type_document}</p>
+                          <p className="text-sm text-orange-600 font-medium">
+                            Échéance dans {dossier.jours_restants} jour(s)
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedDossier(dossier);
+                            setShowUrgentModal(false);
+                            setModalOpen(true);
+                          }}
+                          className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                        >
+                          Voir détails
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dossiers Bientôt Échéance */}
+      {showBientotModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold flex items-center">
+                  <svg className="w-8 h-8 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Dossiers Bientôt Échéance ({bientotDossiers.length})
+                </h2>
+                <button 
+                  onClick={() => setShowBientotModal(false)}
+                  className="text-white hover:text-gray-200"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {bientotDossiers.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">Aucun dossier avec échéance proche</p>
+              ) : (
+                <div className="space-y-4">
+                  {bientotDossiers.map((dossier) => (
+                    <div key={dossier.id} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{dossier.numero_ticket}</h3>
+                          <p className="text-sm text-gray-600">{dossier.nom_client} - {dossier.type_document}</p>
+                          <p className="text-sm text-yellow-600 font-medium">
+                            Échéance dans {dossier.jours_restants} jour(s)
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedDossier(dossier);
+                            setShowBientotModal(false);
+                            setModalOpen(true);
+                          }}
+                          className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
+                        >
+                          Voir détails
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
