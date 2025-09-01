@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Toast from '../components/Toast';
+import { jsPDF } from 'jspdf';
 
 const DashboardAssistant = ({ user, onLogout }) => {
     const [activeTab, setActiveTab] = useState('consultation');
@@ -312,16 +313,47 @@ const DashboardAssistant = ({ user, onLogout }) => {
             if (data.success) {
                 showToast('Dossier créé avec succès !', 'success');
                 
-                // Générer et télécharger le PDF
-                generateTicketPDF(data.data || data.dossier);
+                // Afficher les pièces requises AVANT la génération du PDF
+                const selectedType = typesDossier.find(t => t.id === typeDossier);
+                if (selectedType && selectedType.pieces_requises) {
+                    // Vérifier si pieces_requises est un tableau d'objets ou une chaîne
+                    let piecesArray;
+                    if (Array.isArray(selectedType.pieces_requises)) {
+                        piecesArray = selectedType.pieces_requises;
+                    } else {
+                        piecesArray = selectedType.pieces_requises.split(',').map(p => p.trim());
+                    }
+                    
+                    setPieces(piecesArray);
+                    setShowPiecesRequises(true);
+                    setTimeRemaining(20);
+                    
+                    // Décompte de 20 secondes puis génération du PDF
+                    const countdown = setInterval(() => {
+                        setTimeRemaining(prev => {
+                            if (prev <= 1) {
+                                clearInterval(countdown);
+                                setShowPiecesRequises(false);
+                                generateTicketPDF(data.data || data.dossier, selectedType);
+                                return 0;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+                } else {
+                    // Si pas de pièces, générer directement le PDF
+                    generateTicketPDF(data.data || data.dossier, selectedType);
+                }
                 
-                // Réinitialiser complètement le formulaire
-                setTypeDossier('');
-                setClientInfo({ nom: '', prenom: '', telephone: '', email: '', adresse: '', ville_origine: '' });
-                setSearchTerm('');
-                setShowPiecesRequises(false);
-                setPieces([]);
-                setPiecesAlreadyShown(new Set()); // Réinitialiser pour permettre de revoir les pièces
+                // Réinitialiser complètement le formulaire après un délai
+                setTimeout(() => {
+                    setTypeDossier('');
+                    setClientInfo({ nom: '', prenom: '', telephone: '', email: '', adresse: '', ville_origine: '' });
+                    setSearchTerm('');
+                    setShowPiecesRequises(false);
+                    setPieces([]);
+                    setPiecesAlreadyShown(new Set()); // Réinitialiser pour permettre de revoir les pièces
+                }, 5000);
             } else {
                 setError(data.message || 'Erreur lors de la création du dossier');
             }
@@ -332,48 +364,139 @@ const DashboardAssistant = ({ user, onLogout }) => {
         }
     };
 
-    // Fonction pour générer le PDF du ticket
-    const generateTicketPDF = (dossier) => {
-        const { jsPDF } = window.jspdf;
+    // Fonction pour générer le reçu PDF (simple noir et blanc)
+    const generateTicketPDF = (dossier, typeDossier = null) => {
         const doc = new jsPDF();
-
-        // En-tête
-        doc.setFontSize(20);
+        
+        // Configuration simple en noir et blanc
+        doc.setTextColor(0, 0, 0); // Noir uniquement
+        
+        // En-tête simple
+        doc.setFontSize(18);
         doc.setFont('helvetica', 'bold');
-        doc.text('TICKET DE DOSSIER', 105, 30, { align: 'center' });
-
-        // Informations du dossier
+        doc.text('REÇU DE DÉPÔT DE DOSSIER', 105, 25, { align: 'center' });
+        
+        // Ligne de séparation
+        doc.setLineWidth(0.5);
+        doc.line(20, 35, 190, 35);
+        
+        // Informations du ticket
+        let yPos = 50;
+        const lineHeight = 8;
+        
         doc.setFontSize(12);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Numéro de ticket: ${dossier.numero_ticket}`, 20, 60);
-        doc.text(`Type de dossier: ${dossier.type_nom}`, 20, 75);
-        doc.text(`Date de création: ${new Date(dossier.date_creation).toLocaleDateString('fr-FR')}`, 20, 90);
-
-        // Informations client
         doc.setFont('helvetica', 'bold');
-        doc.text('INFORMATIONS CLIENT:', 20, 110);
+        doc.text('NUMÉRO DE TICKET:', 25, yPos);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Nom: ${dossier.client_nom}`, 20, 125);
-        doc.text(`Prénom: ${dossier.client_prenom}`, 20, 140);
-        doc.text(`Téléphone: ${dossier.client_telephone}`, 20, 155);
-        if (dossier.client_email) {
-            doc.text(`Email: ${dossier.client_email}`, 20, 170);
+        doc.text(`${dossier.numero_ticket || 'N/A'}`, 85, yPos);
+        
+        // Type de dossier
+        if (typeDossier) {
+            yPos += lineHeight;
+            doc.setFont('helvetica', 'bold');
+            doc.text('TYPE DE DOSSIER:', 25, yPos);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`${typeDossier.nom}`, 85, yPos);
         }
-
-        // Instructions
+        
+        // Date
+        yPos += lineHeight;
         doc.setFont('helvetica', 'bold');
-        doc.text('INSTRUCTIONS:', 20, 200);
+        doc.text('DATE:', 25, yPos);
         doc.setFont('helvetica', 'normal');
-        doc.text('1. Conservez ce ticket précieusement', 20, 215);
-        doc.text('2. Il vous sera demandé pour toute consultation', 20, 230);
-        doc.text('3. Présentez les pièces requises lors de votre rendez-vous', 20, 245);
-
-        // Pied de page
-        doc.setFontSize(10);
-        doc.text('Document généré automatiquement - Bureau des documents', 105, 280, { align: 'center' });
-
+        doc.text(`${new Date().toLocaleDateString('fr-FR')}`, 85, yPos);
+        
+        // Informations client
+        yPos += 20;
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('INFORMATIONS CLIENT', 25, yPos);
+        
+        // Ligne de séparation
+        doc.setLineWidth(0.3);
+        doc.line(25, yPos + 3, 120, yPos + 3);
+        
+        yPos += 15;
+        doc.setFontSize(11);
+        
+        // Nom complet
+        doc.setFont('helvetica', 'bold');
+        doc.text('Nom complet:', 25, yPos);
+        doc.setFont('helvetica', 'normal');
+        const nomComplet = `${dossier.client_prenom || clientInfo.prenom || ''} ${dossier.client_nom || clientInfo.nom || ''}`.trim();
+        doc.text(nomComplet, 65, yPos);
+        
+        // Téléphone
+        if (dossier.client_telephone || clientInfo.telephone) {
+            yPos += lineHeight;
+            doc.setFont('helvetica', 'bold');
+            doc.text('Téléphone:', 25, yPos);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`${dossier.client_telephone || clientInfo.telephone}`, 65, yPos);
+        }
+        
+        // Email (si disponible)
+        if (dossier.client_email || clientInfo.email) {
+            yPos += lineHeight;
+            doc.setFont('helvetica', 'bold');
+            doc.text('Email:', 25, yPos);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`${dossier.client_email || clientInfo.email}`, 65, yPos);
+        }
+        
+        // Pièces requises (si disponibles)
+        if (typeDossier && typeDossier.pieces_requises) {
+            yPos += 20;
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'bold');
+            doc.text('PIÈCES À FOURNIR', 25, yPos);
+            
+            // Ligne de séparation
+            doc.setLineWidth(0.3);
+            doc.line(25, yPos + 3, 110, yPos + 3);
+            
+            yPos += 15;
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'normal');
+            
+            const piecesArray = typeDossier.pieces_requises.split(',').map(p => p.trim());
+            piecesArray.forEach((piece, index) => {
+                yPos += lineHeight;
+                doc.text(`• ${piece}`, 25, yPos);
+            });
+        }
+        
+        // Instructions importantes
+        yPos += 25;
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('INSTRUCTIONS IMPORTANTES', 25, yPos);
+        
+        // Ligne de séparation
+        doc.setLineWidth(0.3);
+        doc.line(25, yPos + 3, 140, yPos + 3);
+        
+        yPos += 15;
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.text('• Conservez ce reçu précieusement', 25, yPos);
+        yPos += lineHeight;
+        doc.text('• Présentez-le pour toute consultation de votre dossier', 25, yPos);
+        yPos += lineHeight;
+        doc.text('• En cas de perte, contactez immédiatement nos services', 25, yPos);
+        
+        // Pied de page simple
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'italic');
+        doc.text('Document généré automatiquement', 105, 270, { align: 'center' });
+        doc.text(`${new Date().toLocaleDateString('fr-FR')} - ${new Date().toLocaleTimeString('fr-FR')}`, 105, 275, { align: 'center' });
+        
         // Télécharger le PDF
-        doc.save(`ticket_${dossier.numero_ticket}.pdf`);
+        const fileName = `recu_${dossier.numero_ticket || 'nouveau'}_${Date.now()}.pdf`;
+        doc.save(fileName);
+        
+        // Afficher un message de succès
+        showToast('Reçu PDF généré et téléchargé avec succès !', 'success');
     };
 
     return (
@@ -385,6 +508,52 @@ const DashboardAssistant = ({ user, onLogout }) => {
                     type={toast.type}
                     onClose={() => setToast({ show: false, message: '', type: 'success' })}
                 />
+            )}
+
+            {/* Modal Pièces Requises avec délai */}
+            {showPiecesRequises && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-bold text-gray-900">
+                                🗂️ Pièces Requises à Dicter au Client
+                            </h2>
+                            <div className="bg-red-500 text-white px-4 py-2 rounded-full font-bold text-lg">
+                                {timeRemaining}s
+                            </div>
+                        </div>
+                        
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                            <p className="text-sm text-yellow-800 font-medium">
+                                ⏰ Dictez ces pièces au client maintenant ! Le PDF se générera automatiquement dans {timeRemaining} secondes.
+                            </p>
+                        </div>
+                        
+                        <div className="space-y-3">
+                            {pieces.map((piece, index) => (
+                                <div key={index} className="p-4 bg-gray-50 rounded-lg border-l-4 border-blue-500">
+                                    <h3 className="font-semibold text-gray-900 text-lg">
+                                        {index + 1}. {typeof piece === 'object' ? piece.nom_piece : piece}
+                                    </h3>
+                                    {typeof piece === 'object' && piece.description && (
+                                        <p className="text-sm text-gray-600 mt-1">{piece.description}</p>
+                                    )}
+                                    {typeof piece === 'object' && piece.obligatoire === '1' && (
+                                        <span className="inline-block mt-2 px-2 py-1 text-xs font-medium text-red-800 bg-red-100 rounded-full">
+                                            Obligatoire
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                            <p className="text-sm text-green-800">
+                                💡 <strong>Instructions :</strong> Lisez chaque pièce clairement au client et assurez-vous qu'il comprend ce qui est requis pour son dossier.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Header */}
@@ -933,6 +1102,41 @@ const DashboardAssistant = ({ user, onLogout }) => {
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                 </svg>
                                                 <p className="text-sm text-red-700">{error}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Affichage des pièces requises dans le formulaire */}
+                                    {typeDossier && pieces.length > 0 && (
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <h4 className="text-md font-semibold text-blue-900 mb-3 flex items-center">
+                                                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                Pièces requises pour ce type de dossier :
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {pieces.map((piece, index) => (
+                                                    <div key={index} className="flex items-center p-3 bg-white rounded-lg border border-blue-200">
+                                                        <div className="flex-1">
+                                                            <p className="font-medium text-gray-900">
+                                                                {typeof piece === 'string' ? piece : piece.nom_piece}
+                                                            </p>
+                                                            {typeof piece === 'object' && piece.description && (
+                                                                <p className="text-sm text-gray-600 mt-1">{piece.description}</p>
+                                                            )}
+                                                        </div>
+                                                        {typeof piece === 'object' && (
+                                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                                                piece.obligatoire === 1 || piece.obligatoire === '1' 
+                                                                    ? 'bg-red-100 text-red-800' 
+                                                                    : 'bg-gray-100 text-gray-800'
+                                                            }`}>
+                                                                {piece.obligatoire === 1 || piece.obligatoire === '1' ? 'Obligatoire' : 'Optionnel'}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     )}

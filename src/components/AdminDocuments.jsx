@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
 import Modal from './Modal';
 import Toast from './Toast';
 import './AdminDocuments.css';
@@ -32,6 +33,107 @@ export default function AdminDocuments() {
   const showToast = (message, type = 'info') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: '' }), 3000);
+  };
+
+  // Fonction pour générer un PDF récapitulatif pour l'admin
+  const generateDossierPDF = (dossier) => {
+    const doc = new jsPDF();
+    
+    // Configuration simple en noir et blanc
+    doc.setTextColor(0, 0, 0);
+    
+    // En-tête
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RÉCAPITULATIF DOSSIER', 105, 25, { align: 'center' });
+    
+    // Ligne de séparation
+    doc.setLineWidth(0.5);
+    doc.line(20, 35, 190, 35);
+    
+    // Informations du dossier
+    let yPos = 50;
+    const lineHeight = 8;
+    
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('NUMÉRO:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.numero_ticket}`, 65, yPos);
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.nom_client}`, 65, yPos);
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('TÉLÉPHONE:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.telephone}`, 65, yPos);
+    
+    if (dossier.email) {
+      yPos += lineHeight;
+      doc.setFont('helvetica', 'bold');
+      doc.text('EMAIL:', 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${dossier.email}`, 65, yPos);
+    }
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('TYPE:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.type_document}`, 65, yPos);
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('STATUT:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.statut}`, 65, yPos);
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('MONTANT:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.montant} Ar`, 65, yPos);
+    
+    yPos += lineHeight;
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE CRÉATION:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${dossier.created_at}`, 65, yPos);
+    
+    if (dossier.description) {
+      yPos += 20;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DESCRIPTION', 25, yPos);
+      
+      yPos += 10;
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      
+      // Découper la description en lignes
+      const lines = doc.splitTextToSize(dossier.description, 160);
+      lines.forEach((line) => {
+        yPos += lineHeight;
+        doc.text(line, 25, yPos);
+      });
+    }
+    
+    // Pied de page
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('Document généré par l\'administration', 105, 270, { align: 'center' });
+    doc.text(`${new Date().toLocaleDateString('fr-FR')} - ${new Date().toLocaleTimeString('fr-FR')}`, 105, 275, { align: 'center' });
+    
+    // Télécharger le PDF
+    const fileName = `recap_${dossier.numero_ticket}_${Date.now()}.pdf`;
+    doc.save(fileName);
+    
+    showToast('PDF généré et téléchargé avec succès !', 'success');
   };
 
   useEffect(() => {
@@ -282,6 +384,12 @@ export default function AdminDocuments() {
                         className="text-indigo-600 hover:text-indigo-900 font-medium"
                       >
                         Modifier
+                      </button>
+                      <button 
+                        onClick={() => generateDossierPDF(dossier)}
+                        className="text-green-600 hover:text-green-900 font-medium"
+                      >
+                        PDF
                       </button>
                       <button 
                         onClick={() => handleDelete(dossier)}
