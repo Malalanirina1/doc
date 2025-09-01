@@ -34,6 +34,16 @@ const DashboardAssistant = ({ user, onLogout }) => {
     // Toast state
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
+    // **États pour le changement de mot de passe**
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [passwordForm, setPasswordForm] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+    });
+    const [passwordLoading, setPasswordLoading] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
+
     const toastTimeoutRef = useRef(null);
     const piecesTimeoutRef = useRef(null);
 
@@ -53,6 +63,63 @@ const DashboardAssistant = ({ user, onLogout }) => {
     // Fonction pour formater le temps restant
     const formatTime = (seconds) => {
         return `${seconds}s`;
+    };
+
+    // **NOUVELLE FONCTION** pour changer le mot de passe
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        
+        // Validation
+        if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+            setPasswordError('Veuillez remplir tous les champs');
+            return;
+        }
+        
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+            setPasswordError('Les nouveaux mots de passe ne correspondent pas');
+            return;
+        }
+        
+        if (passwordForm.newPassword.length < 6) {
+            setPasswordError('Le nouveau mot de passe doit contenir au moins 6 caractères');
+            return;
+        }
+        
+        setPasswordLoading(true);
+        setPasswordError('');
+        
+        try {
+            const response = await fetch('http://localhost/doc/change_password.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    user_id: user?.id,
+                    current_password: passwordForm.currentPassword,
+                    new_password: passwordForm.newPassword
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast('Mot de passe modifié avec succès !', 'success');
+                setShowPasswordModal(false);
+                setPasswordForm({
+                    currentPassword: '',
+                    newPassword: '',
+                    confirmPassword: ''
+                });
+            } else {
+                setPasswordError(data.message || 'Erreur lors du changement de mot de passe');
+            }
+        } catch (error) {
+            setPasswordError('Erreur de connexion');
+        } finally {
+            setPasswordLoading(false);
+        }
     };
 
     // Mesures de sécurité - Désactivation des fonctionnalités dangereuses
@@ -588,6 +655,15 @@ const DashboardAssistant = ({ user, onLogout }) => {
                                     <p className="text-sm font-medium text-gray-900">{user?.prenom} {user?.nom}</p>
                                     <p className="text-xs text-gray-500">Assistant</p>
                                 </div>
+                                <button
+                                    onClick={() => setShowPasswordModal(true)}
+                                    className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                >
+                                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                    Mot de passe
+                                </button>
                                 <button
                                     onClick={onLogout}
                                     className="flex items-center px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
@@ -1206,6 +1282,100 @@ const DashboardAssistant = ({ user, onLogout }) => {
                     </div>
                 )}
             </main>
+
+            {/* Modal Changement de Mot de Passe */}
+            {showPasswordModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+                        <div className="px-6 py-4 border-b border-gray-200">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold text-gray-900">Changer le mot de passe</h3>
+                                <button
+                                    onClick={() => {
+                                        setShowPasswordModal(false);
+                                        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                                        setPasswordError('');
+                                    }}
+                                    className="text-gray-400 hover:text-gray-600"
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Mot de passe actuel
+                                </label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.currentPassword}
+                                    onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Nouveau mot de passe
+                                </label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.newPassword}
+                                    onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Confirmer le nouveau mot de passe
+                                </label>
+                                <input
+                                    type="password"
+                                    value={passwordForm.confirmPassword}
+                                    onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+                            
+                            {passwordError && (
+                                <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                                    <p className="text-sm text-red-700">{passwordError}</p>
+                                </div>
+                            )}
+                            
+                            <div className="flex space-x-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowPasswordModal(false);
+                                        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                                        setPasswordError('');
+                                    }}
+                                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                                    disabled={passwordLoading}
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                                    disabled={passwordLoading}
+                                >
+                                    {passwordLoading ? 'Modification...' : 'Modifier'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
