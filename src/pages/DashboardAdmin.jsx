@@ -156,7 +156,7 @@ function DashboardAdmin({ user, setUser }) {
     };
   };
 
-  // Fonction pour calculer les statistiques côté frontend
+  // Fonction pour calculer les statistiques côté frontend selon la nouvelle logique
   const calculerStatistiques = (dossiersList) => {
     if (!Array.isArray(dossiersList) || dossiersList.length === 0) {
       return {
@@ -165,12 +165,17 @@ function DashboardAdmin({ user, setUser }) {
         finis: 0,
         urgents: 0,
         retard: 0,
-        nouveaux_ce_mois: 0
+        bientot_echeance: 0,
+        nouveaux_ce_mois: 0,
+        chiffre_affaires: 0,
+        recettes_du_jour: 0
       };
     }
 
     const aujourd_hui = new Date();
     const debutMois = new Date(aujourd_hui.getFullYear(), aujourd_hui.getMonth(), 1);
+    const debutJour = new Date(aujourd_hui.getFullYear(), aujourd_hui.getMonth(), aujourd_hui.getDate());
+    const finJour = new Date(debutJour.getTime() + 24 * 60 * 60 * 1000);
     
     const stats = {
       total: dossiersList.length,
@@ -178,7 +183,10 @@ function DashboardAdmin({ user, setUser }) {
       finis: 0,
       urgents: 0,
       retard: 0,
-      nouveaux_ce_mois: 0
+      bientot_echeance: 0,
+      nouveaux_ce_mois: 0,
+      chiffre_affaires: 0,
+      recettes_du_jour: 0
     };
 
     dossiersList.forEach(dossier => {
@@ -186,21 +194,41 @@ function DashboardAdmin({ user, setUser }) {
       if (dossier.statut === 'en_cours') stats.en_cours++;
       if (dossier.statut === 'fini') stats.finis++;
       
-      // Compteur nouveaux ce mois
+      // **NOUVELLE LOGIQUE** : Chiffre d'affaires = total des frais des dossiers NON rejetés
+      if (dossier.statut !== 'rejeté' && dossier.statut !== 'annulé') {
+        const montant = parseFloat(dossier.montant) || 0;
+        stats.chiffre_affaires += montant;
+      }
+      
+      // **NOUVELLE LOGIQUE** : Recettes du jour = frais des dossiers CRÉÉS aujourd'hui
       if (dossier.created_at) {
         const dateCreation = new Date(dossier.created_at);
+        
+        // Nouveaux ce mois
         if (dateCreation >= debutMois) {
           stats.nouveaux_ce_mois++;
         }
+        
+        // Recettes du jour (argent encaissé aujourd'hui)
+        if (dateCreation >= debutJour && dateCreation < finJour && 
+            dossier.statut !== 'rejeté' && dossier.statut !== 'annulé') {
+          const montant = parseFloat(dossier.montant) || 0;
+          stats.recettes_du_jour += montant;
+        }
       }
       
-      // Calcul urgence et retard (seulement pour dossiers en cours)
-      if (dossier.statut === 'en_cours' && dossier.date_fin_prevue) {
+      // **LOGIQUE CORRIGÉE** : Urgence et retard basés sur la date actuelle (tous dossiers non finis)
+      if ((dossier.statut === 'en_cours' || dossier.statut === 'en_attente') && dossier.date_fin_prevue) {
         const echeance = new Date(dossier.date_fin_prevue);
         const diff_jours = Math.ceil((echeance - aujourd_hui) / (1000 * 60 * 60 * 24));
         
-        if (diff_jours < 0) stats.retard++;
-        else if (diff_jours <= 2) stats.urgents++;
+        if (diff_jours < 0) {
+          stats.retard++; // En retard = échéance dépassée
+        } else if (diff_jours <= 1) {
+          stats.urgents++; // Urgent = échéance dans 1 jour ou moins
+        } else if (diff_jours <= 3) {
+          stats.bientot_echeance++; // Bientôt = échéance dans 2-3 jours
+        }
       }
     });
 
@@ -1258,7 +1286,7 @@ function DashboardAdmin({ user, setUser }) {
                   </div>
                   <div className="ml-3">
                     <p className="text-xs font-medium text-gray-600">Urgent</p>
-                    <p className="text-2xl font-bold text-orange-600">{stats.urgent || 0}</p>
+                    <p className="text-2xl font-bold text-orange-600">{stats.urgents || 0}</p>
                   </div>
                 </div>
               </div>
@@ -1272,7 +1300,7 @@ function DashboardAdmin({ user, setUser }) {
                   </div>
                   <div className="ml-3">
                     <p className="text-xs font-medium text-gray-600">Bientôt</p>
-                    <p className="text-2xl font-bold text-yellow-600">{stats.bientot || 0}</p>
+                    <p className="text-2xl font-bold text-yellow-600">{stats.bientot_echeance || 0}</p>
                   </div>
                 </div>
               </div>
@@ -1300,26 +1328,47 @@ function DashboardAdmin({ user, setUser }) {
                   </div>
                   <div className="ml-3">
                     <p className="text-xs font-medium text-gray-600">Terminés</p>
-                    <p className="text-2xl font-bold text-green-600">{stats.termines || 0}</p>
+                    <p className="text-2xl font-bold text-green-600">{stats.finis || 0}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Section Chiffre d'affaires */}
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-              <div className="flex items-center">
-                <div className="p-3 rounded-full bg-gradient-to-r from-purple-500 to-purple-600">
-                  <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                  </svg>
+            {/* Section Chiffre d'affaires et Recettes */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Chiffre d'affaires total */}
+              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+                <div className="flex items-center">
+                  <div className="p-3 rounded-full bg-gradient-to-r from-purple-500 to-purple-600">
+                    <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Chiffre d'affaires</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {(stats.chiffre_affaires || 0).toLocaleString()} Ar
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Total frais dossiers non rejetés</p>
+                  </div>
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Chiffre d'affaires</p>
-                  <p className="text-3xl font-bold text-purple-600">
-                    {(stats.chiffre_affaires || 0).toLocaleString()} Ar
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">Revenus des dossiers terminés</p>
+              </div>
+
+              {/* Recettes du jour */}
+              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+                <div className="flex items-center">
+                  <div className="p-3 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600">
+                    <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Recettes du jour</p>
+                    <p className="text-3xl font-bold text-emerald-600">
+                      {(stats.recettes_du_jour || 0).toLocaleString()} Ar
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Encaissés aujourd'hui</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1380,6 +1429,8 @@ function DashboardAdmin({ user, setUser }) {
                 )}
               </div>
             </div>
+
+            {/* Section Dossiers récents corrigée */}
           </div>
         )}
 

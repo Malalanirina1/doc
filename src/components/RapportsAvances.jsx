@@ -116,7 +116,7 @@ function RapportsAvances({ dossiers }) {
         dateFin.setMonth(dateFin.getMonth() + 1);
       }
 
-      // Compter tous les dossiers dans cette période
+      // **NOUVELLE LOGIQUE** : Compter dossiers créés et montants encaissés dans cette période
       let countTotal = 0;
       let montantTotal = 0;
 
@@ -136,8 +136,9 @@ function RapportsAvances({ dossiers }) {
           if (dateCreation >= dateDebut && dateCreation < dateFin) {
             countTotal++;
             
-            // Ajouter le montant si le dossier est terminé
-            if (dossier.statut === 'fini' || dossier.statut === 'termine') {
+            // **NOUVELLE LOGIQUE** : Ajouter le montant si le dossier n'est PAS rejeté
+            // (l'argent est encaissé le jour de création, pas à la fin)
+            if (dossier.statut !== 'rejeté' && dossier.statut !== 'annulé') {
               const montant = parseFloat(dossier.montant) || 0;
               montantTotal += montant;
             }
@@ -165,14 +166,14 @@ function RapportsAvances({ dossiers }) {
       for (let i = 0; i < donneesEvolution.length; i++) {
         donneesEvolution[i].count = i < dossiers.length ? dossiersParPeriode : 0;
         
-        // Calculer un montant proportionnel
-        const dossiersTermines = dossiers.filter(d => d.statut === 'fini' || d.statut === 'termine');
-        const montantTotal = dossiersTermines.reduce((sum, d) => sum + (parseFloat(d.montant) || 0), 0);
+        // Calculer un montant proportionnel selon la nouvelle logique
+        const dossiersNonRejetes = dossiers.filter(d => d.statut !== 'rejeté' && d.statut !== 'annulé');
+        const montantTotal = dossiersNonRejetes.reduce((sum, d) => sum + (parseFloat(d.montant) || 0), 0);
         donneesEvolution[i].montant = Math.floor(montantTotal / labels.length);
       }
     }
 
-    // Statistiques par ville - calculer directement à partir de tous les dossiers
+    // **NOUVELLE LOGIQUE** : Statistiques par ville basées sur dossiers créés et montants encaissés
     const statsParVille = {};
     dossiers.forEach(dossier => {
       const ville = dossier.client_ville_origine || dossier.ville_origine || 'Non spécifié';
@@ -181,7 +182,8 @@ function RapportsAvances({ dossiers }) {
       }
       statsParVille[ville].count++;
       
-      if (dossier.statut === 'fini' || dossier.statut === 'termine') {
+      // Montant encaissé (sauf si rejeté)
+      if (dossier.statut !== 'rejeté' && dossier.statut !== 'annulé') {
         statsParVille[ville].montant += parseFloat(dossier.montant) || 0;
       }
     });
