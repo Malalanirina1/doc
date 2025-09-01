@@ -2,7 +2,8 @@
 require_once 'config.php';
 
 // Configuration CORS
-header('Access-Control-Allow-Origin: http://localhost:5173');
+$origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://localhost:5173';
+header("Access-Control-Allow-Origin: $origin");
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 header('Access-Control-Allow-Credentials: true');
@@ -232,11 +233,11 @@ function createDossierAssistant($input) {
     try {
         $pdo->beginTransaction();
         
-        // Générer le numéro de dossier unique
-        $numeroDossier = generateNumeroDossier();
+        // Générer le numéro de ticket unique
+        $numeroTicket = generateTicketNumber();
         
-        // Récupérer le prix du type de dossier
-        $stmtType = $pdo->prepare("SELECT nom, prix FROM types_dossier WHERE id = ? AND active = 1");
+        // Récupérer les informations du type de dossier
+        $stmtType = $pdo->prepare("SELECT nom, tarif, delai_jours FROM types_dossier WHERE id = ? AND actif = 1");
         $stmtType->execute([$input['type_id']]);
         $typeDossier = $stmtType->fetch(PDO::FETCH_ASSOC);
         
@@ -244,52 +245,75 @@ function createDossierAssistant($input) {
             throw new Exception('Type de dossier non trouvé ou inactif');
         }
         
+        // Vérifier si le client existe déjà
+        $stmtClient = $pdo->prepare("
+            SELECT id FROM clients 
+            WHERE email = ? OR (nom = ? AND prenom = ? AND telephone = ?)
+        ");
+        $stmtClient->execute([
+            $input['client_email'],
+            $input['client_nom'],
+            $input['client_prenom'],
+            $input['client_telephone'] ?? ''
+        ]);
+        $clientExistant = $stmtClient->fetch();
+        
+        $clientId = null;
+        if ($clientExistant) {
+            // Client existe déjà
+            $clientId = $clientExistant['id'];
+        } else {
+            // Créer un nouveau client
+            $stmtNewClient = $pdo->prepare("
+                INSERT INTO clients (nom, prenom, email, telephone, adresse, ville_origine)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            $stmtNewClient->execute([
+                trim($input['client_nom']),
+                trim($input['client_prenom']),
+                trim($input['client_email']),
+                trim($input['client_telephone'] ?? ''),
+                trim($input['client_adresse'] ?? ''),
+                trim($input['ville_origine'] ?? '')
+            ]);
+            $clientId = $pdo->lastInsertId();
+        }
+        
+        // Calculer la date de fin prévue
+        $dateFin = date('Y-m-d', strtotime('+' . $typeDossier['delai_jours'] . ' days'));
+        
         // Insérer le dossier
         $stmt = $pdo->prepare("
             INSERT INTO dossiers (
-                numero_dossier, type_id, client_nom, client_prenom, client_email, 
-                client_telephone, client_adresse, client_ville_origine,
-                montant, commentaire, statut, date_creation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nouveau', NOW())
+                numero_ticket, client_id, type_dossier_id, date_depot, date_fin_prevue,
+                montant, description, statut, created_by, created_at
+            ) VALUES (?, ?, ?, NOW(), ?, ?, ?, 'en_cours', ?, NOW())
         ");
         
         $stmt->execute([
-            $numeroDossier,
+            $numeroTicket,
+            $clientId,
             $input['type_id'],
-            trim($input['client_nom']),
-            trim($input['client_prenom']),
-            trim($input['client_email']),
-            trim($input['client_telephone'] ?? ''),
-            trim($input['client_adresse'] ?? ''),
-            trim($input['client_ville_origine'] ?? ''),
-            $input['montant'] ?: $typeDossier['prix'],
-            trim($input['commentaire'] ?? '')
+            $dateFin,
+            $input['montant'] ?? $typeDossier['tarif'],
+            trim($input['description'] ?? ''),
+            $input['created_by'] ?? 1
         ]);
         
         $dossierId = $pdo->lastInsertId();
-        
-        // Récupérer les pièces requises pour ce type
-        $stmtPieces = $pdo->prepare("
-            SELECT pr.*, td.nom_piece, td.description
-            FROM pieces_requises pr
-            JOIN types_documents td ON pr.type_document_id = td.id
-            WHERE pr.type_dossier_id = ?
-            ORDER BY pr.obligatoire DESC, td.nom_piece ASC
-        ");
-        $stmtPieces->execute([$input['type_id']]);
-        $piecesRequises = $stmtPieces->fetchAll(PDO::FETCH_ASSOC);
         
         $pdo->commit();
         
         echo json_encode([
             'success' => true,
             'message' => 'Dossier créé avec succès',
-            'dossier' => [
+            'data' => [
                 'id' => $dossierId,
-                'numero_dossier' => $numeroDossier,
-                'type_nom' => $typeDossier['nom']
-            ],
-            'pieces_requises' => $piecesRequises
+                'numero_ticket' => $numeroTicket,
+                'client_id' => $clientId,
+                'type_nom' => $typeDossier['nom'],
+                'montant' => $input['montant'] ?? $typeDossier['tarif']
+            ]
         ]);
         
     } catch (Exception $e) {

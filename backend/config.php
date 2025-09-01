@@ -16,12 +16,17 @@ define('DB_CHARSET', 'utf8mb4');
  * Configuration des headers CORS
  */
 function setCORSHeaders() {
-    // Permettre les requêtes depuis localhost:5173 (Vite dev server)
+    // Permettre les requêtes depuis localhost:5173 (Vite dev server) all origin 
     $allowedOrigins = [
+        'http://*',
         'http://localhost:5173',
         'http://localhost:3000',
         'http://127.0.0.1:5173',
-        'http://127.0.0.1:3000'
+        'http://127.0.0.1:3000',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+        //from all origin 
+        
     ];
     
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';

@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+$origin = $_SERVER['HTTP_ORIGIN'] ?? 'http://localhost:5173';
+header("Access-Control-Allow-Origin: $origin");
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
@@ -24,15 +25,37 @@ try {
 
     $numeroTicket = trim($_GET['ticket']);
 
-    // Rechercher le dossier par numéro de ticket
+    // Rechercher le dossier par numéro de ticket avec toutes les informations client
     $stmt = $pdo->prepare("
         SELECT 
-            d.*,
-            t.nom as type_nom,
-            t.prix as type_prix
+            d.id,
+            d.numero_ticket,
+            d.client_id,
+            d.type_dossier_id,
+            d.date_depot,
+            d.date_fin_prevue,
+            d.statut,
+            d.motif_rejet,
+            d.description,
+            d.montant,
+            d.created_at as date_creation,
+            d.updated_at,
+            -- Informations client
+            c.nom as client_nom,
+            c.prenom as client_prenom,
+            c.email as client_email,
+            c.telephone as client_telephone,
+            c.adresse as client_adresse,
+            c.ville_origine as client_ville_origine,
+            -- Informations type de dossier
+            td.nom as type_nom,
+            td.description as type_description,
+            td.tarif as type_prix,
+            td.delai_jours as type_delai
         FROM dossiers d
-        LEFT JOIN types_dossier t ON d.type_id = t.id
-        WHERE d.numero_dossier = ?
+        LEFT JOIN clients c ON d.client_id = c.id
+        LEFT JOIN types_dossier td ON d.type_dossier_id = td.id
+        WHERE d.numero_ticket = ?
         LIMIT 1
     ");
     
@@ -49,15 +72,14 @@ try {
 
     // Récupérer les pièces requises pour ce type de dossier (si nécessaire)
     $pieces = [];
-    if ($dossier['type_id']) {
+    if ($dossier['type_dossier_id']) {
         $stmtPieces = $pdo->prepare("
-            SELECT pr.*, td.nom_piece, td.description
+            SELECT pr.*, pr.nom_piece, pr.description
             FROM pieces_requises pr
-            JOIN types_documents td ON pr.type_document_id = td.id
             WHERE pr.type_dossier_id = ?
-            ORDER BY pr.obligatoire DESC, td.nom_piece ASC
+            ORDER BY pr.obligatoire DESC, pr.nom_piece ASC
         ");
-        $stmtPieces->execute([$dossier['type_id']]);
+        $stmtPieces->execute([$dossier['type_dossier_id']]);
         $pieces = $stmtPieces->fetchAll(PDO::FETCH_ASSOC);
     }
 
