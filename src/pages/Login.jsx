@@ -131,19 +131,6 @@ function Login({ setUser }) {
                 )}
               </button>
             </div>
-
-            <div className="text-center">
-              <div className="text-xs text-gray-500 space-y-1">
-                <p><strong>Comptes de test :</strong></p>
-                <p>Admin: admin / admin123</p>
-                <p>Assistant: assistant1 / assistant123</p>
-              </div>
-              <div className="mt-4">
-                <Link to="/register" className="text-indigo-600 hover:text-indigo-500 text-sm font-medium">
-                  Créer un nouveau compte
-                </Link>
-              </div>
-            </div>
           </form>
         </div>
       </div>

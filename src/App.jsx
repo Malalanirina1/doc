@@ -46,26 +46,27 @@ function App() {
     );
   }
 
+  // Déterminer la base URL selon l'environnement
+  const basename = import.meta.env.MODE === 'production' ? '/docfront' : '';
+  
+  // Log pour debug
+  console.log('🔧 Mode:', import.meta.env.MODE, '| Basename:', basename);
+  
+  // Fonction de déconnexion
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    setUser(null);
+  };
+  
   return (
     <ToastProvider>
-      <Router>
-        <div className="App w-full h-full">
+      <Router basename={basename}>
+        <div className="min-h-screen bg-gray-50">
           <Routes>
-            <Route 
-              path="/login" 
-              element={
-                user ? (
-                  <Navigate to={user.role === 'admin' ? '/admin' : '/assistant'} replace />
-                ) : (
-                  <Login setUser={setUser} />
-                )
-              } 
-            />
-            
-            <Route 
-              path="/register" 
-              element={<Register />} 
-            />
+            <Route path="/" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/assistant'} replace /> : <Navigate to="/login" replace />} />
+            <Route path="/login" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/assistant'} replace /> : <Login setUser={setUser} />} />
+            <Route path="/register" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/assistant'} replace /> : <Register />} />
             
             <Route 
               path="/admin" 
@@ -80,27 +81,8 @@ function App() {
               path="/assistant" 
               element={
                 <ProtectedRoute requiredRole="assistant">
-                  <DashboardAssistant user={user} setUser={setUser} />
+                  <DashboardAssistant user={user} setUser={setUser} onLogout={handleLogout} />
                 </ProtectedRoute>
-              } 
-            />
-            
-            <Route 
-              path="/" 
-              element={
-                user ? (
-                  <Navigate to={user.role === 'admin' ? '/admin' : '/assistant'} replace />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              } 
-            />
-            
-            {/* Route pour toutes les autres URLs */}
-            <Route 
-              path="*" 
-              element={
-                <Navigate to={user ? (user.role === 'admin' ? '/admin' : '/assistant') : '/login'} replace />
               } 
             />
           </Routes>
